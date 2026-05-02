@@ -288,8 +288,8 @@ export default function Home() {
     const rect = viewportRef.current.getBoundingClientRect();
     const pctX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const pctY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-    const targetX = Math.round(pctX * 1280);
-    const targetY = Math.round(pctY * 800);
+    const targetX = Math.round(pctX * 1024);
+    const targetY = Math.round(pctY * 640);
     addLog(`Click at [${targetX}, ${targetY}]`, "info");
     setIsClicking(true);
     botClick.mutate({ data: { x: targetX, y: targetY } });
@@ -449,7 +449,7 @@ export default function Home() {
           {/* AUTO LOGIN PANEL */}
           <AutoLoginPanel />
             <div className="flex items-center justify-between text-xs font-bold text-muted-foreground uppercase tracking-widest px-1">
-              <span>Primary Viewport // [1280x800]</span>
+              <span>Primary Viewport // [1024x640]</span>
               <span className="flex items-center gap-2">
                 <Activity className="w-3 h-3 text-primary" />
                 {status?.running ? "LIVE_FEED" : "NO_SIGNAL"}
@@ -472,14 +472,14 @@ export default function Home() {
                 <div ref={viewportRef} className="absolute inset-0 w-full h-full" onClick={handleViewportClick}>
                   {/* Base layer — always fully visible, never flickers */}
                   <img
-                    src={`data:image/png;base64,${baseSrc}`}
+                    src={`data:image/jpeg;base64,${baseSrc}`}
                     alt="Browser Feed"
                     className="absolute inset-0 w-full h-full object-contain pointer-events-none"
                   />
                   {/* Incoming layer — fades in on top, then gets promoted to base */}
                   {fadeSrc && (
                     <img
-                      src={`data:image/png;base64,${fadeSrc}`}
+                      src={`data:image/jpeg;base64,${fadeSrc}`}
                       alt=""
                       className="absolute inset-0 w-full h-full object-contain pointer-events-none transition-opacity duration-[400ms] ease-in-out"
                       style={{ opacity: fadeSrc ? 1 : 0 }}

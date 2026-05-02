@@ -51,7 +51,7 @@ function getChromiumPath(): string {
 }
 
 const EARN_URL = "https://dash.blazenode.online/earn";
-const SCREENSHOT_INTERVAL_MS = 2_000;
+const SCREENSHOT_INTERVAL_MS = 4_000;
 const WATCHDOG_INTERVAL_MS = 3_000;
 
 // Store session file next to the server process's working directory (not dist/)
@@ -184,7 +184,7 @@ async function loadSession(): Promise<boolean> {
 async function takeScreenshot(): Promise<void> {
   if (!page) return;
   try {
-    const buf = await page.screenshot({ type: "png", encoding: "base64" });
+    const buf = await page.screenshot({ type: "jpeg", quality: 65, encoding: "base64" });
     state.latestScreenshot = buf as string;
     const url = page.url();
     const isOnLoginFlow =
@@ -409,12 +409,24 @@ export async function startBot(): Promise<{ success: boolean; message: string }>
         "--no-first-run",
         "--no-zygote",
         "--disable-gpu",
-        "--window-size=1280,800",
+        "--window-size=1024,640",
+        // Memory savings for constrained environments (512 MB RAM)
+        "--js-flags=--max-old-space-size=256",
+        "--disable-extensions",
+        "--disable-plugins",
+        "--disable-images",
+        "--blink-settings=imagesEnabled=false",
+        "--disable-background-networking",
+        "--disable-sync",
+        "--disable-translate",
+        "--hide-scrollbars",
+        "--mute-audio",
+        "--disable-logging",
         // Hide automation signals so Google OAuth doesn't block the flow
         "--disable-blink-features=AutomationControlled",
         "--disable-features=IsolateOrigins,site-per-process",
       ],
-      defaultViewport: { width: 1280, height: 800 },
+      defaultViewport: { width: 1024, height: 640 },
     });
 
     browser.on("disconnected", handleBrowserDisconnect);
