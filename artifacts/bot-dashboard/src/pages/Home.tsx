@@ -95,6 +95,25 @@ export default function Home() {
     },
   });
 
+  const [isRestarting, setIsRestarting] = useState(false);
+  const restartBot = async () => {
+    if (isRestarting) return;
+    setIsRestarting(true);
+    addLog("Restarting bot...", "warning");
+    try {
+      const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
+      const res = await fetch(`${BASE}/api/bot/restart`, { method: "POST" });
+      const data = await res.json();
+      addLog(data.success ? "Bot restarted successfully" : `Restart failed: ${data.message}`, data.success ? "success" : "error");
+    } catch (e) {
+      addLog(`Restart error: ${e}`, "error");
+    } finally {
+      setIsRestarting(false);
+      queryClient.invalidateQueries({ queryKey: getGetBotStatusQueryKey() });
+      queryClient.invalidateQueries({ queryKey: getGetBotScreenshotQueryKey() });
+    }
+  };
+
   const botClick = useBotClick({
     mutation: {
       onSuccess: (data) => {
@@ -344,7 +363,7 @@ export default function Home() {
               <RefreshCw className={`w-3 h-3 ${status?.autoRestart ? "animate-spin [animation-duration:3s]" : ""}`} />
               AUTO_RST:{status?.autoRestart ? "ON" : "OFF"}
             </button>
-            <div className="flex bg-background border border-border rounded-md p-1">
+            <div className="flex bg-background border border-border rounded-md p-1 gap-0.5">
               <Button
                 variant={status?.running ? "secondary" : "default"}
                 size="sm"
@@ -354,6 +373,19 @@ export default function Home() {
               >
                 <Play className="w-3.5 h-3.5 mr-1.5" />
                 INIT_START
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="font-mono text-xs rounded-sm transition-all border-amber-500/40 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300"
+                onClick={restartBot}
+                disabled={isRestarting}
+                title="Stop then start the bot"
+              >
+                {isRestarting
+                  ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  : <RefreshCw className="w-3.5 h-3.5 mr-1.5" />}
+                RESTART
               </Button>
               <Button
                 variant={status?.running ? "destructive" : "secondary"}

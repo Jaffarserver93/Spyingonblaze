@@ -29,6 +29,12 @@ router.post("/bot/stop", async (req, res): Promise<void> => {
   res.json(StopBotResponse.parse(result));
 });
 
+router.post("/bot/restart", async (_req, res): Promise<void> => {
+  await stopBot();
+  const result = await startBot();
+  res.json(StartBotResponse.parse(result));
+});
+
 router.post("/bot/click", async (req, res): Promise<void> => {
   const parsed = BotClickBody.safeParse(req.body);
   if (!parsed.success) {
