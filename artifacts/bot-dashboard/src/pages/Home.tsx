@@ -374,13 +374,13 @@ export default function Home() {
           )}
         </AnimatePresence>
 
-        {/* AUTO LOGIN PANEL */}
-        <AutoLoginPanel />
-
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
 
-          {/* VIEWPORT + KEYBOARD INPUT */}
-          <div className="lg:col-span-3 flex flex-col gap-2">
+          {/* LEFT COLUMN: AUTO LOGIN + VIEWPORT + KEYBOARD */}
+          <div className="lg:col-span-3 flex flex-col gap-4">
+
+          {/* AUTO LOGIN PANEL */}
+          <AutoLoginPanel />
             <div className="flex items-center justify-between text-xs font-bold text-muted-foreground uppercase tracking-widest px-1">
               <span>Primary Viewport // [1280x800]</span>
               <span className="flex items-center gap-2">
