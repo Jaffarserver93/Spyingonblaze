@@ -271,33 +271,69 @@ async function watchdog(): Promise<void> {
         document.querySelector("[data-earning='true']") !== null ||
         document.querySelector(".earning-active") !== null;
 
-      // 5. Scrape coins earned — BlazeNode shows "29 EARNED" on the earn page
+      // 5. Scrape coins earned — BlazeNode shows "1\nEARNED" in a stat box
       let coinsEarned: number | null = null;
       try {
-        // Strategy A: look for element labelled "earned" and grab the sibling number
+        // Strategy A: find leaf text nodes that are pure numbers next to "EARNED" label
         const allEls = Array.from(document.querySelectorAll("*"));
         for (const el of allEls) {
+          // Only look at leaf-ish elements (no element children, or few of them)
+          if (el.children.length > 3) continue;
           const txt = (el.textContent ?? "").trim();
-          if (/^\d+(\.\d+)?$/.test(txt)) {
-            const next = el.nextElementSibling;
-            const prev = el.previousElementSibling;
-            const parent = el.parentElement;
-            const nearbyText = [
-              next?.textContent ?? "",
-              prev?.textContent ?? "",
-              parent?.textContent ?? "",
-            ].join(" ").toLowerCase();
-            if (nearbyText.includes("earned")) {
+          if (!/^\d+(\.\d+)?$/.test(txt)) continue;
+
+          // Check siblings and parent for "earned" label
+          const siblings = Array.from(el.parentElement?.children ?? []);
+          const siblingText = siblings.map((s) => s.textContent ?? "").join(" ").toLowerCase();
+          const parentText = (el.parentElement?.textContent ?? "").toLowerCase();
+
+          if (siblingText.includes("earned") || parentText.includes("earned")) {
+            // Make sure this isn't the "per min" value — check if "per min" is closer
+            if (!siblingText.includes("per min") && parentText.includes("earned")) {
+              coinsEarned = parseFloat(txt);
+              break;
+            }
+            if (siblingText.includes("earned") && !siblingText.includes("per min")) {
               coinsEarned = parseFloat(txt);
               break;
             }
           }
         }
-        // Strategy B: regex scan the full page text "NUMBER earned"
+
+        // Strategy B: regex on innerText — handles "1\nEARNED" layout
         if (coinsEarned === null) {
           const bodyText = document.body.innerText;
-          const m = bodyText.match(/(\d+(?:\.\d+)?)\s*(?:coins?\s*)?earned/i);
+          // Match a number followed (possibly with whitespace/newline) by "EARNED"
+          // but NOT followed by "PER MIN" context
+          const m = bodyText.match(/(\d+(?:\.\d+)?)\s*\n?\s*EARNED/i);
           if (m) coinsEarned = parseFloat(m[1]);
+        }
+
+        // Strategy C: look for the specific BlazeNode stat card structure
+        if (coinsEarned === null) {
+          const earnedLabels = Array.from(document.querySelectorAll("*")).filter(
+            (el) => el.children.length === 0 && /^earned$/i.test((el.textContent ?? "").trim()),
+          );
+          for (const label of earnedLabels) {
+            // Sibling or parent-sibling with the number
+            const parent = label.parentElement;
+            if (!parent) continue;
+            const numEl = Array.from(parent.children).find((c) => /^\d+(\.\d+)?$/.test((c.textContent ?? "").trim()));
+            if (numEl) {
+              coinsEarned = parseFloat((numEl.textContent ?? "").trim());
+              break;
+            }
+            // Try grandparent
+            const gp = parent.parentElement;
+            if (!gp) continue;
+            const numEl2 = Array.from(gp.querySelectorAll("*")).find(
+              (c) => c.children.length === 0 && /^\d+(\.\d+)?$/.test((c.textContent ?? "").trim()),
+            );
+            if (numEl2) {
+              coinsEarned = parseFloat((numEl2.textContent ?? "").trim());
+              break;
+            }
+          }
         }
       } catch {}
 

@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useEffect, useState } from "react";
 import {
   LineChart,
   Line,
@@ -19,6 +19,7 @@ interface Props {
   data: EarningsPoint[];
   current: number | null;
   onClear: () => void;
+  onForceRefresh?: () => void;
 }
 
 function istTime(ts: number): string {
@@ -66,12 +67,7 @@ interface TickProps {
 }
 
 function CustomXTick({ x, y, payload, index, visibleTicksCount }: TickProps) {
-  if (
-    payload == null ||
-    index == null ||
-    visibleTicksCount == null
-  )
-    return null;
+  if (payload == null || index == null || visibleTicksCount == null) return null;
   const total = visibleTicksCount;
   if (total > 12 && index % Math.ceil(total / 12) !== 0) return null;
   return (
@@ -91,11 +87,35 @@ function CustomXTick({ x, y, payload, index, visibleTicksCount }: TickProps) {
   );
 }
 
-export default function EarningsTrack({ data, current, onClear }: Props) {
+const REFRESH_INTERVAL = 60;
+
+export default function EarningsTrack({ data, current, onClear, onForceRefresh }: Props) {
   const chartRef = useRef<HTMLDivElement>(null);
+  const [countdown, setCountdown] = useState(REFRESH_INTERVAL);
+  const [spinning, setSpinning] = useState(false);
+
+  useEffect(() => {
+    setCountdown(REFRESH_INTERVAL);
+    const tick = setInterval(() => {
+      setCountdown((c) => {
+        if (c <= 1) {
+          setSpinning(true);
+          onForceRefresh?.();
+          setTimeout(() => setSpinning(false), 800);
+          return REFRESH_INTERVAL;
+        }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(tick);
+  }, []);
 
   const displayCurrent =
-    current !== null ? current.toFixed(2) : data.length > 0 ? data[data.length - 1].coins.toFixed(2) : "0.00";
+    current !== null
+      ? current.toFixed(2)
+      : data.length > 0
+        ? data[data.length - 1].coins.toFixed(2)
+        : "0.00";
 
   return (
     <div className="bg-card border border-border rounded-xl shadow-sm p-4 flex flex-col gap-3">
@@ -105,24 +125,42 @@ export default function EarningsTrack({ data, current, onClear }: Props) {
           <span>Earnings_Track</span>
         </div>
         <div className="flex items-center gap-3">
+          <span className="font-mono text-xs text-[#555] tracking-wider">
+            REFRESH:{" "}
+            <span className={countdown <= 10 ? "text-amber-400" : "text-[#555]"}>
+              {countdown}s
+            </span>
+          </span>
           <span className="font-mono text-xs font-bold text-emerald-400 tracking-wider">
             CURRENT: {displayCurrent}
           </span>
           <button
+            onClick={() => {
+              setSpinning(true);
+              onForceRefresh?.();
+              setCountdown(REFRESH_INTERVAL);
+              setTimeout(() => setSpinning(false), 800);
+            }}
+            title="Force refresh"
+            className="text-muted-foreground hover:text-emerald-400 transition-colors"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${spinning ? "animate-spin" : ""}`} />
+          </button>
+          <button
             onClick={onClear}
             title="Clear history"
-            className="text-muted-foreground hover:text-foreground transition-colors"
+            className="text-muted-foreground hover:text-red-400 transition-colors text-xs font-mono"
           >
-            <RefreshCw className="w-3.5 h-3.5" />
+            CLR
           </button>
         </div>
       </div>
 
       {data.length < 2 ? (
         <div className="h-[180px] flex items-center justify-center text-muted-foreground text-xs font-mono opacity-50">
-          {data.length === 0
-            ? "Waiting for earnings data..."
-            : "Collecting data points..."}
+          {current !== null
+            ? `Got ${displayCurrent} coins — collecting more points...`
+            : "Waiting for earnings data..."}
         </div>
       ) : (
         <div ref={chartRef} className="h-[180px] w-full">

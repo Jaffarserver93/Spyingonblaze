@@ -228,7 +228,7 @@ export default function Home() {
     prevVerificationCount.current = status.verificationCount;
 
     // Track earnings history for chart
-    const coins = (status as { coinsEarned?: number | null }).coinsEarned ?? null;
+    const coins = status.coinsEarned ?? null;
     if (coins !== null && coins !== lastCoinRef.current) {
       lastCoinRef.current = coins;
       setEarningsHistory((prev) => {
@@ -238,6 +238,17 @@ export default function Home() {
       });
     }
   }, [status, toast]);
+
+  // Force-add a data point every 60s even if value hasn't changed
+  const handleForceRefresh = () => {
+    const coins = lastCoinRef.current;
+    if (coins !== null) {
+      setEarningsHistory((prev) => {
+        const point: EarningsPoint = { ts: Date.now(), coins };
+        return [...prev, point].slice(-500);
+      });
+    }
+  };
 
   // ─── Auto-restart toggle ──────────────────────────────────────────────────
 
@@ -579,8 +590,9 @@ export default function Home() {
             {/* EARNINGS TRACK CHART */}
             <EarningsTrack
               data={earningsHistory}
-              current={(status as { coinsEarned?: number | null })?.coinsEarned ?? null}
+              current={status?.coinsEarned ?? null}
               onClear={() => { setEarningsHistory([]); lastCoinRef.current = null; }}
+              onForceRefresh={handleForceRefresh}
             />
           </div>
 

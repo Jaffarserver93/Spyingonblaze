@@ -18,6 +18,8 @@ export interface BotStatus {
   sessionActive: boolean;
   earning: boolean;
   /** @nullable */
+  coinsEarned: number | null;
+  /** @nullable */
   lastVerification: string | null;
   verificationCount: number;
   autoRestart: boolean;

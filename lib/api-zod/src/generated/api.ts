@@ -27,6 +27,7 @@ export const GetBotStatusResponse = zod.object({
   lastActivity: zod.string().nullable(),
   sessionActive: zod.boolean(),
   earning: zod.boolean(),
+  coinsEarned: zod.number().nullable(),
   lastVerification: zod.string().nullable(),
   verificationCount: zod.number(),
   autoRestart: zod.boolean(),
