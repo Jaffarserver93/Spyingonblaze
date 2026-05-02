@@ -303,42 +303,62 @@ export async function runAutoLoginStep(page: Page): Promise<void> {
       await page.waitForNetworkIdle({ idleTime: 500, timeout: 5000 }).catch(() => {});
 
       // ── Clerk "Welcome back" page: email + password on same form ──────────
-      // The email field may LOOK pre-filled but its .value is empty.
-      // Always ensure the email field has the correct value before submitting.
-      const emailOnPwdPage = await page.evaluate((email: string) => {
-        const emailSels = ["input[name='identifier']", "input[type='email']", "#identifier-field"];
-        for (const sel of emailSels) {
-          const el = document.querySelector(sel) as HTMLInputElement | null;
-          if (!el) continue;
-          if (!el.value || el.value.trim() === "") {
-            // Field is present but empty — fill it
-            el.focus();
-            el.value = email;
-            el.dispatchEvent(new Event("input", { bubbles: true }));
-            el.dispatchEvent(new Event("change", { bubbles: true }));
-            return `filled-email:${sel}`;
-          }
-          return `email-already-set:${el.value}`;
+      // React-controlled inputs IGNORE direct .value assignments — we must use
+      // real Puppeteer keyboard events so React state gets updated.
+      const emailSelectors = [
+        "input[name='identifier']",
+        "input[type='email']",
+        "#identifier-field",
+      ];
+
+      let emailFilled = false;
+      for (const sel of emailSelectors) {
+        const el = await page.$(sel);
+        if (!el) continue;
+
+        // Check current value — if already correct, skip typing
+        const currentVal = await page.evaluate(
+          (s) => (document.querySelector(s) as HTMLInputElement | null)?.value ?? "",
+          sel,
+        );
+
+        if (currentVal.trim() === cfg.email) {
+          addLog(`Email already correct in field (${sel})`, "info");
+          emailFilled = true;
+          break;
         }
-        return "no-email-field";
-      }, cfg.email);
-      addLog(`Email field check: ${emailOnPwdPage}`, "info");
+
+        // Click → select all → delete → type using real keystrokes
+        addLog(`Filling email via keyboard into ${sel}`, "info");
+        await page.click(sel);
+        await new Promise((r) => setTimeout(r, 200));
+        await page.keyboard.down("Control");
+        await page.keyboard.press("a");
+        await page.keyboard.up("Control");
+        await page.keyboard.press("Backspace");
+        await new Promise((r) => setTimeout(r, 150));
+        await page.type(sel, cfg.email, { delay: 60 });
+        addLog(`Typed email into ${sel}: ${cfg.email}`, "info");
+        emailFilled = true;
+        await new Promise((r) => setTimeout(r, 400));
+        break;
+      }
+
+      if (!emailFilled) {
+        addLog("No email field found on password page — proceeding anyway", "warning");
+      }
 
       const pwdSelector = "input[type='password'], input[name='password'], #password-field";
       await page.waitForSelector(pwdSelector, { timeout: 5000 });
 
-      // Clear password field and type
-      await page.evaluate((sel) => {
-        const el = document.querySelector(sel) as HTMLInputElement | null;
-        if (!el) return;
-        el.focus();
-        el.value = "";
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-      }, pwdSelector);
+      // Click → select all → delete → type password via real keystrokes
       await page.click(pwdSelector);
+      await new Promise((r) => setTimeout(r, 200));
       await page.keyboard.down("Control");
       await page.keyboard.press("a");
       await page.keyboard.up("Control");
+      await page.keyboard.press("Backspace");
+      await new Promise((r) => setTimeout(r, 150));
       await page.type(pwdSelector, cfg.password, { delay: 60 });
       addLog("Typed password", "info");
       await new Promise((r) => setTimeout(r, 800));
