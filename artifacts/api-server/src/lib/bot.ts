@@ -104,6 +104,9 @@ let page: Page | null = null;
 let screenshotTimer: ReturnType<typeof setInterval> | null = null;
 let watchdogTimer: ReturnType<typeof setInterval> | null = null;
 let intentionalStop = false;
+let wasOnEarnPage = false;       // detect first-time arrival on /earn
+let lastSessionSaveAt = 0;       // throttle periodic session saves
+const SESSION_SAVE_INTERVAL_MS = 5 * 60 * 1000; // save every 5 min while on earn page
 
 // ─── Session persistence ──────────────────────────────────────────────────────
 
@@ -432,8 +435,25 @@ async function watchdog(): Promise<void> {
       }
     }
 
-    // Save session after any action (keeps cookies fresh)
+    const nowMs = Date.now();
+
+    // Save session the very first time we land on /earn (full auth cookies are now set)
+    if (!wasOnEarnPage) {
+      wasOnEarnPage = true;
+      lastSessionSaveAt = nowMs;
+      logger.info("First arrival on earn page — saving fully authenticated session");
+      await saveSession();
+    }
+
+    // Also save every 5 minutes while on earn page to keep cookies fresh
+    if (nowMs - lastSessionSaveAt >= SESSION_SAVE_INTERVAL_MS) {
+      lastSessionSaveAt = nowMs;
+      await saveSession();
+    }
+
+    // Save immediately after any interactive action too
     if (result.actions.length > 0) {
+      lastSessionSaveAt = nowMs;
       await saveSession();
     }
   } catch (err) {
@@ -581,6 +601,8 @@ async function cleanupBrowser(): Promise<void> {
   state.needsLogin = false;
   state.earning = false;
   state.latestScreenshot = null;
+  wasOnEarnPage = false;
+  lastSessionSaveAt = 0;
 }
 
 export async function stopBot(): Promise<{ success: boolean; message: string }> {
