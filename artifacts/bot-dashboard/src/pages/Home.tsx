@@ -14,6 +14,7 @@ import {
   Play, Square, Terminal, AlertTriangle, Clock, Activity,
   Loader2, ShieldCheck, Coins, Keyboard, Send, CornerDownLeft, RefreshCw,
 } from "lucide-react";
+import AutoLoginPanel from "@/components/AutoLoginPanel";
 import { formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -372,6 +373,9 @@ export default function Home() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* AUTO LOGIN PANEL */}
+        <AutoLoginPanel />
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
 

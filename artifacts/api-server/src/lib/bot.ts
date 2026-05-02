@@ -2,6 +2,7 @@ import puppeteer, { type Browser, type Page } from "puppeteer";
 import fs, { existsSync } from "fs";
 import path from "path";
 import { logger } from "./logger";
+import { runAutoLoginStep, loadConfig as loadAutoLoginConfig } from "./auto-login";
 
 const NIX_CHROMIUM =
   "/nix/store/qa9cnw4v5xkxyip6mb9kxqfq1z4x2dx1-chromium-138.0.7204.100/bin/chromium";
@@ -166,6 +167,17 @@ async function watchdog(): Promise<void> {
       await takeScreenshot();
       // If session cookies exist and we land on login, save session so far
       if (currentUrl !== "about:blank") await saveSession();
+
+      // Trigger auto-login if credentials are configured and we're on a login page
+      const isLoginPage =
+        currentUrl.includes("/sign-in") ||
+        currentUrl.includes("/login") ||
+        currentUrl.includes("clerk") ||
+        currentUrl === "https://dash.blazenode.online/" ||
+        currentUrl.startsWith("https://dash.blazenode.online/#/factor");
+      if (isLoginPage && loadAutoLoginConfig()) {
+        await runAutoLoginStep(page);
+      }
       return;
     }
 
