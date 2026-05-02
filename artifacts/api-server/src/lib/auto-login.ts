@@ -75,6 +75,7 @@ export function getAutoLoginState() {
     imapHost: cfg?.imapHost ?? "imap.gmail.com",
     imapPort: cfg?.imapPort ?? 993,
     imapUser: cfg?.imapUser ?? "",
+    imapPasswordSaved: !!cfg?.imapPassword,
   };
 }
 
@@ -213,11 +214,37 @@ async function detectLoginStep(page: Page): Promise<"email" | "password" | "otp"
   }
 }
 
+// ─── Shared: click non-social submit button ───────────────────────────────────
+
+function clickContinueScript(): string {
+  return `(() => {
+    const SOCIAL = ["google","github","apple","facebook","twitter","microsoft","saml","oauth","gitlab","linkedin","discord"];
+    const submitBtns = Array.from(document.querySelectorAll('button[type="submit"]'));
+    for (const btn of submitBtns) {
+      const t = (btn.textContent || "").toLowerCase();
+      if (SOCIAL.some(s => t.includes(s))) continue;
+      if (!btn.disabled) { btn.click(); return "submit-btn"; }
+    }
+    const allBtns = Array.from(document.querySelectorAll("button"));
+    for (const btn of allBtns) {
+      const t = (btn.textContent || "").toLowerCase().trim();
+      if (SOCIAL.some(s => t.includes(s))) continue;
+      if (["continue","next","sign in","continue →"].includes(t)) {
+        if (!btn.disabled) { btn.click(); return "text-btn"; }
+      }
+    }
+    return null;
+  })()`;
+}
+
 // ─── Auto-login step executor ─────────────────────────────────────────────────
 
 let autoLoginLock = false;
 let lastLoginAttemptAt = 0;
-const LOGIN_COOLDOWN_MS = 15_000;
+let lastCompletedStep: string | null = null;
+let lastCompletedStepAt = 0;
+const LOGIN_COOLDOWN_MS = 30_000;
+const STEP_REPEAT_COOLDOWN_MS = 45_000;
 
 export async function runAutoLoginStep(page: Page): Promise<void> {
   const cfg = loadConfig();
@@ -225,190 +252,206 @@ export async function runAutoLoginStep(page: Page): Promise<void> {
   if (autoLoginLock) return;
   if (Date.now() - lastLoginAttemptAt < LOGIN_COOLDOWN_MS) return;
 
+  // Grab URL for logging before we do anything
+  const currentUrl = await page.evaluate(() => window.location.href).catch(() => "unknown");
+
   const step = await detectLoginStep(page);
   if (step === "none") return;
+
+  // Don't repeat the exact same step within STEP_REPEAT_COOLDOWN_MS
+  if (step === lastCompletedStep && Date.now() - lastCompletedStepAt < STEP_REPEAT_COOLDOWN_MS) {
+    addLog(`Skipping re-run of "${step}" step (cooldown active)`, "warning");
+    return;
+  }
 
   autoLoginLock = true;
   lastLoginAttemptAt = Date.now();
   state.active = true;
   state.lastAttempt = new Date().toISOString();
+  addLog(`Auto-login: step="${step}" url=${currentUrl}`, "info");
 
   try {
     if (step === "email") {
       state.currentStep = "email";
-      addLog("Auto-login: Detected email step", "info");
       await page.waitForNetworkIdle({ idleTime: 500, timeout: 5000 }).catch(() => {});
 
-      // Try to fill the email field
-      const emailSelector =
-        "input[name='identifier'], input[type='email'], #identifier-field, input[type='text']";
+      const emailSelector = "input[name='identifier'], input[type='email'], #identifier-field";
       await page.waitForSelector(emailSelector, { timeout: 5000 });
-      await page.click(emailSelector);
-      await page.evaluate((sel) => {
+
+      // Clear and fill
+      await page.evaluate((sel, email) => {
         const el = document.querySelector(sel) as HTMLInputElement | null;
-        if (el) { el.value = ""; el.dispatchEvent(new Event("input", { bubbles: true })); }
-      }, emailSelector);
+        if (!el) return;
+        el.focus();
+        el.value = "";
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      }, emailSelector, cfg.email);
+      await page.click(emailSelector);
+      await page.keyboard.down("Control");
+      await page.keyboard.press("a");
+      await page.keyboard.up("Control");
       await page.type(emailSelector, cfg.email, { delay: 60 });
       addLog(`Typed email: ${cfg.email}`, "info");
-      await new Promise((r) => setTimeout(r, 600));
+      await new Promise((r) => setTimeout(r, 800));
 
-      // Click the plain Continue / Next / Sign in button — skip all social login buttons
-      const clicked = await page.evaluate(() => {
-        // Social provider keywords to skip
-        const SOCIAL = ["google", "github", "apple", "facebook", "twitter", "microsoft", "saml", "oauth", "gitlab", "linkedin", "discord"];
+      const clicked = await page.evaluate(new Function(`return ${clickContinueScript()}`) as () => string | null);
+      if (!clicked) await page.keyboard.press("Enter");
+      addLog(`Continue after email (method: ${clicked ?? "Enter"})`, "info");
 
-        // Prefer submit buttons first (Clerk uses type="submit" for the main action)
-        const submitBtns = Array.from(document.querySelectorAll<HTMLButtonElement>("button[type='submit']"));
-        for (const btn of submitBtns) {
-          const t = (btn.textContent ?? "").toLowerCase();
-          if (SOCIAL.some((s) => t.includes(s))) continue;
-          if (!btn.disabled) { btn.click(); return "submit-btn"; }
-        }
-
-        // Fallback: any button whose text is purely "continue", "next", or "sign in" (no social keywords)
-        const allBtns = Array.from(document.querySelectorAll<HTMLButtonElement>("button"));
-        for (const btn of allBtns) {
-          const t = (btn.textContent ?? "").toLowerCase().trim();
-          if (SOCIAL.some((s) => t.includes(s))) continue;
-          if (t === "continue" || t === "next" || t === "sign in" || t === "continue →") {
-            if (!btn.disabled) { btn.click(); return "text-btn"; }
-          }
-        }
-        return null;
-      });
-      if (!clicked) {
-        // Safest fallback: press Enter on the focused email field
-        await page.keyboard.press("Enter");
-      }
-      addLog(`Clicked Continue after email (method: ${clicked ?? "Enter"})`, "info");
     } else if (step === "password") {
       state.currentStep = "password";
-      addLog("Auto-login: Detected password step", "info");
       await page.waitForNetworkIdle({ idleTime: 500, timeout: 5000 }).catch(() => {});
+
+      // ── Clerk "Welcome back" page: email + password on same form ──────────
+      // The email field may LOOK pre-filled but its .value is empty.
+      // Always ensure the email field has the correct value before submitting.
+      const emailOnPwdPage = await page.evaluate((email: string) => {
+        const emailSels = ["input[name='identifier']", "input[type='email']", "#identifier-field"];
+        for (const sel of emailSels) {
+          const el = document.querySelector(sel) as HTMLInputElement | null;
+          if (!el) continue;
+          if (!el.value || el.value.trim() === "") {
+            // Field is present but empty — fill it
+            el.focus();
+            el.value = email;
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+            el.dispatchEvent(new Event("change", { bubbles: true }));
+            return `filled-email:${sel}`;
+          }
+          return `email-already-set:${el.value}`;
+        }
+        return "no-email-field";
+      }, cfg.email);
+      addLog(`Email field check: ${emailOnPwdPage}`, "info");
 
       const pwdSelector = "input[type='password'], input[name='password'], #password-field";
       await page.waitForSelector(pwdSelector, { timeout: 5000 });
-      await page.click(pwdSelector);
+
+      // Clear password field and type
       await page.evaluate((sel) => {
         const el = document.querySelector(sel) as HTMLInputElement | null;
-        if (el) { el.value = ""; el.dispatchEvent(new Event("input", { bubbles: true })); }
+        if (!el) return;
+        el.focus();
+        el.value = "";
+        el.dispatchEvent(new Event("input", { bubbles: true }));
       }, pwdSelector);
+      await page.click(pwdSelector);
+      await page.keyboard.down("Control");
+      await page.keyboard.press("a");
+      await page.keyboard.up("Control");
       await page.type(pwdSelector, cfg.password, { delay: 60 });
       addLog("Typed password", "info");
-      await new Promise((r) => setTimeout(r, 600));
+      await new Promise((r) => setTimeout(r, 800));
 
-      const clickedPwd = await page.evaluate(() => {
-        const SOCIAL = ["google", "github", "apple", "facebook", "twitter", "microsoft", "saml", "oauth", "gitlab", "linkedin", "discord"];
-
-        const submitBtns = Array.from(document.querySelectorAll<HTMLButtonElement>("button[type='submit']"));
-        for (const btn of submitBtns) {
-          const t = (btn.textContent ?? "").toLowerCase();
-          if (SOCIAL.some((s) => t.includes(s))) continue;
-          if (!btn.disabled) { btn.click(); return "submit-btn"; }
-        }
-
-        const allBtns = Array.from(document.querySelectorAll<HTMLButtonElement>("button"));
-        for (const btn of allBtns) {
-          const t = (btn.textContent ?? "").toLowerCase().trim();
-          if (SOCIAL.some((s) => t.includes(s))) continue;
-          if (t === "continue" || t === "next" || t === "sign in" || t === "continue →") {
-            if (!btn.disabled) { btn.click(); return "text-btn"; }
-          }
-        }
-        return null;
-      });
+      const clickedPwd = await page.evaluate(new Function(`return ${clickContinueScript()}`) as () => string | null);
       if (!clickedPwd) await page.keyboard.press("Enter");
-      addLog(`Clicked Continue after password (method: ${clickedPwd ?? "Enter"})`, "info");
+      addLog(`Continue after password (method: ${clickedPwd ?? "Enter"})`, "info");
+
+      // Wait for navigation/response
+      await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 8000 }).catch(() => {});
+
     } else if (step === "otp") {
       state.currentStep = "otp";
-      addLog("Auto-login: Detected OTP step — fetching from email...", "info");
+      addLog("OTP step — waiting for email to arrive (5s)...", "info");
 
-      // Wait a moment for the OTP email to arrive
-      await new Promise((r) => setTimeout(r, 3000));
+      await new Promise((r) => setTimeout(r, 5000));
 
       const otp = await fetchOtpFromImap();
       if (!otp) {
         addLog("Could not retrieve OTP from email", "error");
-        state.active = false;
-        autoLoginLock = false;
         return;
       }
 
-      // Try multiple strategies to enter the OTP
-      addLog(`OTP strategy A (paste): pasted_on:true`, "info");
+      addLog(`OTP target input: checking Clerk selectors...`, "info");
 
-      // Strategy A: find OTP input and set value
+      // Strategy A: single combined OTP input (Clerk sometimes uses one input)
       const pastedA = await page.evaluate((code: string) => {
-        const inputs = Array.from(document.querySelectorAll(
-          "input[autocomplete='one-time-code'], input[data-input-otp], [class*='otpCode'] input, [class*='OtpCode'] input"
-        )) as HTMLInputElement[];
-
-        if (inputs.length === 1) {
-          inputs[0].value = code;
-          inputs[0].dispatchEvent(new Event("input", { bubbles: true }));
-          inputs[0].dispatchEvent(new Event("change", { bubbles: true }));
-          return true;
+        const sels = [
+          "input[autocomplete='one-time-code']",
+          "input[data-input-otp]",
+          "[class*='otpCode'] input",
+          "[class*='OtpCode'] input",
+        ];
+        for (const sel of sels) {
+          const inputs = Array.from(document.querySelectorAll(sel)) as HTMLInputElement[];
+          if (inputs.length === 1) {
+            inputs[0].focus();
+            inputs[0].value = code;
+            inputs[0].dispatchEvent(new InputEvent("input", { bubbles: true, data: code }));
+            inputs[0].dispatchEvent(new Event("change", { bubbles: true }));
+            return `pasted:${sel}`;
+          }
+          // Multiple single-digit boxes
+          if (inputs.length > 1 && inputs.length <= 8) {
+            for (let i = 0; i < inputs.length && i < code.length; i++) {
+              inputs[i].focus();
+              inputs[i].value = code[i];
+              inputs[i].dispatchEvent(new InputEvent("input", { bubbles: true, data: code[i] }));
+            }
+            return `pasted-multi:${sel}`;
+          }
         }
-        return false;
+        return null;
       }, otp);
 
+      addLog(`OTP strategy A: ${pastedA ?? "no match"}`, "info");
+
       if (!pastedA) {
-        // Strategy B: focus first OTP box and type digit by digit
-        addLog("OTP strategy B: focus + keyboard.type (single=true)...", "info");
+        // Strategy B: find first OTP box, focus it, type digit by digit
+        addLog("OTP strategy B: keyboard type digit by digit...", "info");
         const otpSelectors = [
           "input[autocomplete='one-time-code']",
           "input[data-input-otp]",
           "[class*='otpCode'] input",
-          "input[maxlength='1']",
+          "input[maxlength='1'][type='text']",
+          "input[maxlength='6']",
         ];
         for (const sel of otpSelectors) {
           const found = await page.$(sel);
           if (found) {
             await found.click();
-            await page.keyboard.type(otp, { delay: 80 });
-            addLog("OTP strategy B: typed OTP digit by digit", "info");
+            await page.keyboard.type(otp, { delay: 100 });
+            addLog(`OTP strategy B: typed into ${sel}`, "info");
             break;
           }
         }
       }
 
-      // Strategy C: mouse click on OTP field area then type
-      addLog("OTP strategy C: mouse click + type...", "info");
-      const otpBox = await page.$("input[autocomplete='one-time-code'], input[data-input-otp], input[maxlength='1']");
-      if (otpBox) {
-        const box = await otpBox.boundingBox();
-        if (box) {
-          await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-          await page.keyboard.type(otp, { delay: 80 });
-        }
-      }
+      await new Promise((r) => setTimeout(r, 1000));
 
-      await new Promise((r) => setTimeout(r, 800));
-
-      // Submit
-      const clicked = await page.evaluate(() => {
-        const btns = Array.from(document.querySelectorAll("button"));
+      // Submit — skip social buttons here too
+      const SOCIAL = ["google","github","apple","facebook","twitter","microsoft"];
+      const otpSubmitted = await page.evaluate((social: string[]) => {
+        const btns = Array.from(document.querySelectorAll<HTMLButtonElement>("button[type='submit'], button"));
         for (const btn of btns) {
           const t = (btn.textContent ?? "").toLowerCase().trim();
-          if (t.includes("continue") || t.includes("verify") || t.includes("confirm")) {
-            (btn as HTMLElement).click();
-            return true;
+          if (social.some(s => t.includes(s))) continue;
+          if (!btn.disabled && (t.includes("continue") || t.includes("verify") || t.includes("confirm") || btn.type === "submit")) {
+            btn.click(); return t || "submit";
           }
         }
-        return false;
-      });
-      if (!clicked) await page.keyboard.press("Enter");
-      addLog("OTP submitted — waiting for auth...", "info");
+        return null;
+      }, SOCIAL);
+      if (!otpSubmitted) await page.keyboard.press("Enter");
+      addLog(`OTP submitted (btn: ${otpSubmitted ?? "Enter"})`, "info");
+
+      await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10000 }).catch(() => {});
     }
 
     await new Promise((r) => setTimeout(r, 2000));
 
-    // Check if we made it past login
+    const finalUrl = await page.evaluate(() => window.location.href).catch(() => "unknown");
     const finalStep = await detectLoginStep(page);
+    addLog(`Post-action: step="${finalStep}" url=${finalUrl}`, "info");
+
     if (finalStep === "none") {
       state.currentStep = null;
       addLog("Auto-login completed successfully!", "success");
     }
+
+    lastCompletedStep = step;
+    lastCompletedStepAt = Date.now();
+
   } catch (err) {
     addLog(`Auto-login error: ${err instanceof Error ? err.message : String(err)}`, "error");
   } finally {

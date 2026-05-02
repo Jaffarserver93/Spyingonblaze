@@ -10,11 +10,21 @@ router.get("/auto-login/config", (_req, res): void => {
 
 router.post("/auto-login/config", (req, res): void => {
   const { email, password, imapHost, imapPort, imapUser, imapPassword } = req.body;
-  if (!email || !password || !imapHost || !imapPort || !imapPassword) {
+  if (!email || !password || !imapHost || !imapPort) {
     res.status(400).json({ success: false, message: "Missing required fields" });
     return;
   }
-  saveConfig({ email, password, imapHost, imapPort: Number(imapPort), imapUser: imapUser ?? "", imapPassword });
+  // If imapPassword is empty string, keep the existing saved password
+  let finalImapPassword = imapPassword ?? "";
+  if (!finalImapPassword) {
+    const existing = loadConfig();
+    finalImapPassword = existing?.imapPassword ?? "";
+  }
+  if (!finalImapPassword) {
+    res.status(400).json({ success: false, message: "IMAP App Password is required" });
+    return;
+  }
+  saveConfig({ email, password, imapHost, imapPort: Number(imapPort), imapUser: imapUser ?? "", imapPassword: finalImapPassword });
   res.json({ success: true, message: "Credentials saved" });
 });
 

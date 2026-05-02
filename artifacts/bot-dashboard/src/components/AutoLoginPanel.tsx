@@ -21,6 +21,7 @@ interface AutoLoginState {
   imapHost: string;
   imapPort: number;
   imapUser: string;
+  imapPasswordSaved: boolean;
 }
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
@@ -59,6 +60,10 @@ export default function AutoLoginPanel() {
         if (data.imapHost) setImapHost(data.imapHost);
         if (data.imapPort) setImapPort(String(data.imapPort));
         if (data.imapUser) setImapUser(data.imapUser);
+        // Only pre-fill imap password placeholder if saved and user hasn't typed anything
+        if (data.imapPasswordSaved && imapPassword === "") {
+          setImapPassword("__SAVED__");
+        }
       }
     } catch {}
   }
@@ -66,11 +71,13 @@ export default function AutoLoginPanel() {
   async function handleSave() {
     if (!email || !password || !imapHost || !imapPort || !imapPassword) return;
     setSaving(true);
+    // "__SAVED__" sentinel means keep the existing password on the server — send empty string to signal "don't overwrite"
+    const imapPasswordToSend = imapPassword === "__SAVED__" ? "" : imapPassword;
     try {
       const r = await fetch(`${BASE}/api/auto-login/config`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, imapHost, imapPort: Number(imapPort), imapUser, imapPassword }),
+        body: JSON.stringify({ email, password, imapHost, imapPort: Number(imapPort), imapUser, imapPassword: imapPasswordToSend }),
       });
       const data = await r.json();
       if (data.success) {
@@ -209,11 +216,11 @@ export default function AutoLoginPanel() {
                   />
                   <div className="relative">
                     <Input
-                      value={imapPassword}
+                      value={imapPassword === "__SAVED__" ? "" : imapPassword}
                       onChange={(e) => setImapPassword(e.target.value)}
-                      placeholder="IMAP App Password (Gmail: myaccount.google.com)"
+                      placeholder={imapPassword === "__SAVED__" ? "●●●●●●●●●●●●●●●● (saved)" : "IMAP App Password (Gmail: myaccount.google.com)"}
                       type={showImapPassword ? "text" : "password"}
-                      className="font-mono text-sm bg-background/50 border-border/60 pr-10"
+                      className={`font-mono text-sm bg-background/50 border-border/60 pr-10 ${imapPassword === "__SAVED__" ? "placeholder:text-emerald-500/60" : ""}`}
                     />
                     <button
                       onClick={() => setShowImapPassword((v) => !v)}
