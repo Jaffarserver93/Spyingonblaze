@@ -7,9 +7,46 @@ import { runAutoLoginStep, loadConfig as loadAutoLoginConfig } from "./auto-logi
 const NIX_CHROMIUM =
   "/nix/store/qa9cnw4v5xkxyip6mb9kxqfq1z4x2dx1-chromium-138.0.7204.100/bin/chromium";
 
+// Where we tell Render to install Chrome during build (inside the project dir so it
+// gets uploaded as part of the build artifact and is available at runtime).
+const RENDER_PUPPETEER_CACHE = "/opt/render/project/src/.puppeteer-cache";
+
+/**
+ * Scan a puppeteer cache directory for a Chrome binary.
+ * Structure: {cacheDir}/chrome/linux-{version}/chrome-linux64/chrome
+ */
+function findChromeInDir(cacheDir: string): string | null {
+  try {
+    const chromeRoot = path.join(cacheDir, "chrome");
+    const versionDirs = fs.readdirSync(chromeRoot);
+    for (const vDir of versionDirs) {
+      const bin = path.join(chromeRoot, vDir, "chrome-linux64", "chrome");
+      if (existsSync(bin)) return bin;
+    }
+  } catch {}
+  return null;
+}
+
 function getChromiumPath(): string {
+  // 1. Replit / NixOS dev environment
   if (existsSync(NIX_CHROMIUM)) return NIX_CHROMIUM;
+
+  // 2. Explicit override via env var
   if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
+
+  // 3. Render: Chrome installed to project-relative cache during build
+  //    This works regardless of whether PUPPETEER_CACHE_DIR is set at runtime
+  const renderBin = findChromeInDir(RENDER_PUPPETEER_CACHE);
+  if (renderBin) return renderBin;
+
+  // 4. Custom PUPPETEER_CACHE_DIR (any other environment)
+  const customCache = process.env.PUPPETEER_CACHE_DIR;
+  if (customCache) {
+    const customBin = findChromeInDir(customCache);
+    if (customBin) return customBin;
+  }
+
+  // 5. Puppeteer default cache (local dev fallback)
   return puppeteer.executablePath();
 }
 
