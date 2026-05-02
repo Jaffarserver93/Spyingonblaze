@@ -1,0 +1,50 @@
+2026-05-02T12:08:12.442192314Z rendering chunks...
+2026-05-02T12:08:12.463134615Z computing gzip size...
+2026-05-02T12:08:12.501442734Z dist/public/index.html                   0.74 kB │ gzip:   0.42 kB
+2026-05-02T12:08:12.501462625Z dist/public/assets/index-D4iI3POw.css  100.28 kB │ gzip:  16.44 kB
+2026-05-02T12:08:12.501467686Z dist/public/assets/index-1oNyEJQM.js   488.59 kB │ gzip: 157.75 kB
+2026-05-02T12:08:12.501830422Z ✓ built in 4.86s
+2026-05-02T12:08:13.053745159Z 
+2026-05-02T12:08:13.053788262Z > @workspace/api-server@0.0.0 build /opt/render/project/src/artifacts/api-server
+2026-05-02T12:08:13.053795152Z > node ./build.mjs
+2026-05-02T12:08:13.053800463Z 
+2026-05-02T12:08:13.327450651Z 
+2026-05-02T12:08:13.327477303Z   dist/index.mjs                       1.4mb ⚠️
+2026-05-02T12:08:13.327485224Z   dist/pino-worker.mjs               153.4kb
+2026-05-02T12:08:13.327490204Z   dist/pino-file.mjs                 142.1kb
+2026-05-02T12:08:13.327494485Z   dist/pino-pretty.mjs               114.6kb
+2026-05-02T12:08:13.327498895Z   dist/thread-stream-worker.mjs        7.3kb
+2026-05-02T12:08:13.327504645Z   dist/index.mjs.map                   2.2mb
+2026-05-02T12:08:13.327508995Z   dist/pino-worker.mjs.map           256.9kb
+2026-05-02T12:08:13.327513276Z   dist/pino-file.mjs.map             229.0kb
+2026-05-02T12:08:13.327517726Z   dist/pino-pretty.mjs.map           203.9kb
+2026-05-02T12:08:13.327522047Z   dist/thread-stream-worker.mjs.map   12.0kb
+2026-05-02T12:08:13.327526347Z 
+2026-05-02T12:08:13.327531217Z ⚡ Done in 208ms
+2026-05-02T12:08:24.126351601Z ==> Uploading build...
+2026-05-02T12:08:33.784191858Z ==> Uploaded in 4.1s. Compression took 5.6s
+2026-05-02T12:08:33.821235284Z ==> Build successful 🎉
+2026-05-02T12:08:37.670312137Z ==> Deploying...
+2026-05-02T12:08:37.881992671Z ==> Setting WEB_CONCURRENCY=1 by default, based on available CPUs in the instance
+2026-05-02T12:09:04.948109588Z ==> Running 'node artifacts/api-server/dist/index.mjs'
+2026-05-02T12:09:07.952154678Z file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:19926
+2026-05-02T12:09:07.952184769Z           throw new PathError(`Missing parameter name at index ${index}`, str);
+2026-05-02T12:09:07.952189278Z                 ^
+2026-05-02T12:09:07.952192459Z 
+2026-05-02T12:09:07.952196219Z PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+2026-05-02T12:09:07.952201809Z     at name (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:19926:17)
+2026-05-02T12:09:07.952204799Z     at parse (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:19940:66)
+2026-05-02T12:09:07.952207769Z     at pathToRegexp (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:20082:58)
+2026-05-02T12:09:07.952210889Z     at Object.match (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:20052:32)
+2026-05-02T12:09:07.952214299Z     at matcher (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:20254:27)
+2026-05-02T12:09:07.952217299Z     at new Layer (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:20261:68)
+2026-05-02T12:09:07.952220179Z     at router4.route (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:20686:21)
+2026-05-02T12:09:07.952222939Z     at app2.route (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:20995:26)
+2026-05-02T12:09:07.952226019Z     at app2.<computed> [as get] (file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:21058:26)
+2026-05-02T12:09:07.952229179Z     at file:///opt/render/project/src/artifacts/api-server/dist/index.mjs:32803:9 {
+2026-05-02T12:09:07.952231839Z   originalPath: '*'
+2026-05-02T12:09:07.95223456Z }
+2026-05-02T12:09:07.95223669Z 
+2026-05-02T12:09:07.95223916Z Node.js v24.14.1
+2026-05-02T12:09:09.374103979Z ==> Exited with status 1
+2026-05-02T12:09:09.376785513Z ==> Common ways to troubleshoot your deploy: https://render.com/docs/troubleshooting-deploys

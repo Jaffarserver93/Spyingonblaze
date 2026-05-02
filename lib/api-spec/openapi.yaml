@@ -1,0 +1,195 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: bot
+    description: AFK Bot operations
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /bot/status:
+    get:
+      operationId: getBotStatus
+      tags: [bot]
+      summary: Get bot status
+      description: Returns current bot status including screenshot and session info
+      responses:
+        "200":
+          description: Bot status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotStatus"
+  /bot/start:
+    post:
+      operationId: startBot
+      tags: [bot]
+      summary: Start the AFK bot
+      description: Launches the browser and starts AFK earning
+      responses:
+        "200":
+          description: Bot started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotActionResult"
+  /bot/stop:
+    post:
+      operationId: stopBot
+      tags: [bot]
+      summary: Stop the AFK bot
+      description: Closes the browser and stops the bot
+      responses:
+        "200":
+          description: Bot stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotActionResult"
+  /bot/click:
+    post:
+      operationId: botClick
+      tags: [bot]
+      summary: Click at coordinates in the browser
+      description: Simulate a mouse click at given x,y coordinates
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClickRequest"
+      responses:
+        "200":
+          description: Click performed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotActionResult"
+  /bot/type:
+    post:
+      operationId: botType
+      tags: [bot]
+      summary: Type text in the browser
+      description: Types text at the current cursor position in the browser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TypeRequest"
+      responses:
+        "200":
+          description: Text typed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotActionResult"
+  /bot/screenshot:
+    get:
+      operationId: getBotScreenshot
+      tags: [bot]
+      summary: Get latest browser screenshot
+      description: Returns base64-encoded PNG screenshot of current browser state
+      responses:
+        "200":
+          description: Screenshot data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScreenshotResponse"
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    BotStatus:
+      type: object
+      properties:
+        running:
+          type: boolean
+        needsLogin:
+          type: boolean
+        uptime:
+          type: ["integer", "null"]
+        screenshot:
+          type: ["string", "null"]
+        lastActivity:
+          type: ["string", "null"]
+        sessionActive:
+          type: boolean
+        earning:
+          type: boolean
+        lastVerification:
+          type: ["string", "null"]
+        verificationCount:
+          type: integer
+      required:
+        - running
+        - needsLogin
+        - uptime
+        - screenshot
+        - lastActivity
+        - sessionActive
+        - earning
+        - lastVerification
+        - verificationCount
+    BotActionResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required:
+        - success
+        - message
+    ClickRequest:
+      type: object
+      properties:
+        x:
+          type: integer
+        y:
+          type: integer
+      required:
+        - x
+        - y
+    TypeRequest:
+      type: object
+      properties:
+        text:
+          type: string
+      required:
+        - text
+    ScreenshotResponse:
+      type: object
+      properties:
+        screenshot:
+          type: ["string", "null"]
+        timestamp:
+          type: string
+      required:
+        - screenshot
+        - timestamp

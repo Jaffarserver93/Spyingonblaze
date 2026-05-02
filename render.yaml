@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: blazenode-afk-bot
+    runtime: node
+    buildCommand: npm install -g pnpm && pnpm install && pnpm run build:render
+    startCommand: node artifacts/api-server/dist/index.mjs
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: NODE_ENV
+        value: production

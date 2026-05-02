@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "BlazeNode AFK Bot"
+version = "1.0.0"
+id = "artifacts/bot-dashboard"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 25712
+
+[services.development]
+run = "fuser -k 25712/tcp 2>/dev/null; pnpm --filter @workspace/bot-dashboard run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/bot-dashboard", "run", "build" ]
+publicDir = "artifacts/bot-dashboard/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25712"
+BASE_PATH = "/"
