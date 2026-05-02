@@ -70,6 +70,8 @@ interface BotState {
   verificationCount: number;
   autoRestart: boolean;
   crashCount: number;
+  reconnecting: boolean;
+  reconnectCount: number;
 }
 
 const state: BotState = {
@@ -85,6 +87,8 @@ const state: BotState = {
   verificationCount: 0,
   autoRestart: true,
   crashCount: 0,
+  reconnecting: false,
+  reconnectCount: 0,
 };
 
 // ─── Earnings history ─────────────────────────────────────────────────────────
@@ -296,16 +300,35 @@ async function watchdog(): Promise<void> {
     if (!onEarnPage) {
       // Still take a screenshot so the viewport stays live
       await takeScreenshot();
-      // If session cookies exist and we land on login, save session so far
-      if (currentUrl !== "about:blank") await saveSession();
 
-      // Trigger auto-login if credentials are configured and we're on a login page
       const isLoginPage =
         currentUrl.includes("/sign-in") ||
         currentUrl.includes("/login") ||
         currentUrl.includes("clerk") ||
         currentUrl === "https://dash.blazenode.online/" ||
         currentUrl.startsWith("https://dash.blazenode.online/#/factor");
+
+      // ── Session-expiry detection ──────────────────────────────────────────
+      // If the bot was previously earning and is now on a login page, the
+      // session expired. Mark as reconnecting so the dashboard can show it.
+      if (isLoginPage && wasOnEarnPage && !state.reconnecting) {
+        state.reconnecting = true;
+        state.reconnectCount += 1;
+        wasOnEarnPage = false; // reset so first-arrival save fires again after reconnect
+        lastSessionSaveAt = 0;
+        logger.warn({ reconnectCount: state.reconnectCount }, "Session expired — auto-reconnecting");
+      }
+
+      // Clear reconnecting flag once we're back off the login page
+      if (!isLoginPage && state.reconnecting) {
+        state.reconnecting = false;
+        logger.info("Session restored — reconnect complete");
+      }
+
+      // If session cookies exist and we land on login, save session so far
+      if (currentUrl !== "about:blank") await saveSession();
+
+      // Trigger auto-login if credentials are configured and we're on a login page
       if (isLoginPage && loadAutoLoginConfig()) {
         await runAutoLoginStep(page);
         return;
@@ -862,6 +885,8 @@ export function getBotStatus() {
     verificationCount: state.verificationCount,
     autoRestart: state.autoRestart,
     crashCount: state.crashCount,
+    reconnecting: state.reconnecting,
+    reconnectCount: state.reconnectCount,
   };
 }
 

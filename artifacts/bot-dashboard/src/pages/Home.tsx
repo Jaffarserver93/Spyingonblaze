@@ -203,6 +203,8 @@ export default function Home() {
   const prevNeedsLogin = useRef<boolean | null>(null);
   const prevEarning = useRef<boolean | null>(null);
   const prevVerificationCount = useRef<number | null>(null);
+  const prevReconnecting = useRef<boolean | null>(null);
+  const prevReconnectCount = useRef<number | null>(null);
 
   useEffect(() => {
     if (!status) return;
@@ -212,12 +214,26 @@ export default function Home() {
     }
 
     if (prevNeedsLogin.current !== null && prevNeedsLogin.current !== status.needsLogin) {
-      if (status.needsLogin) {
+      if (status.needsLogin && !status.reconnecting) {
         addLog("Authentication required. Click in the viewport to interact.", "warning");
         toast({ title: "Login Required", description: "Click the Google login button in the viewport, then use the keyboard bar below to type your email.", variant: "destructive" });
       } else if (!status.needsLogin && prevNeedsLogin.current) {
-        addLog("Authentication successful. Session active.", "success");
+        addLog(status.reconnecting ? "Reconnect in progress..." : "Authentication successful. Session active.", "success");
       }
+    }
+
+    if (prevReconnecting.current !== null && prevReconnecting.current !== status.reconnecting) {
+      if (status.reconnecting) {
+        addLog(`Session expired — auto-reconnecting... (#${status.reconnectCount})`, "warning");
+        toast({ title: "Session Expired", description: "Session expired — bot is reconnecting automatically via OTP. No action needed." });
+      } else if (!status.reconnecting && prevReconnecting.current) {
+        addLog("Reconnected successfully. Session restored.", "success");
+        toast({ title: "Reconnected", description: "Session restored — AFK earning will resume shortly." });
+      }
+    }
+
+    if (prevReconnectCount.current !== null && status.reconnectCount > prevReconnectCount.current && !status.reconnecting) {
+      // already handled above
     }
 
     if (prevEarning.current !== null && prevEarning.current !== status.earning) {
@@ -232,6 +248,8 @@ export default function Home() {
     prevNeedsLogin.current = status.needsLogin;
     prevEarning.current = status.earning;
     prevVerificationCount.current = status.verificationCount;
+    prevReconnecting.current = status.reconnecting;
+    prevReconnectCount.current = status.reconnectCount;
   }, [status, toast]);
 
   // ─── Earnings data via dedicated endpoint ─────────────────────────────────
@@ -451,8 +469,17 @@ export default function Home() {
             <div className="flex items-center justify-between text-xs font-bold text-muted-foreground uppercase tracking-widest px-1">
               <span>Primary Viewport // [1024x640]</span>
               <span className="flex items-center gap-2">
-                <Activity className="w-3 h-3 text-primary" />
-                {status?.running ? "LIVE_FEED" : "NO_SIGNAL"}
+                {status?.reconnecting ? (
+                  <>
+                    <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+                    <span className="text-yellow-400">RECONNECTING...</span>
+                  </>
+                ) : (
+                  <>
+                    <Activity className="w-3 h-3 text-primary" />
+                    {status?.running ? "LIVE_FEED" : "NO_SIGNAL"}
+                  </>
+                )}
               </span>
             </div>
 

@@ -24,4 +24,6 @@ export interface BotStatus {
   verificationCount: number;
   autoRestart: boolean;
   crashCount: number;
+  reconnecting: boolean;
+  reconnectCount: number;
 }

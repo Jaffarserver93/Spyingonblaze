@@ -403,9 +403,19 @@ export async function runAutoLoginStep(page: Page): Promise<void> {
 
       await new Promise((r) => setTimeout(r, 5000));
 
-      const otp = await fetchOtpFromImap();
+      // Retry OTP fetch up to 3 times with increasing delays
+      let otp: string | null = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        otp = await fetchOtpFromImap();
+        if (otp) break;
+        if (attempt < 3) {
+          const delay = attempt * 10_000;
+          addLog(`OTP not found (attempt ${attempt}/3) — retrying in ${delay / 1000}s...`, "warning");
+          await new Promise((r) => setTimeout(r, delay));
+        }
+      }
       if (!otp) {
-        addLog("Could not retrieve OTP from email", "error");
+        addLog("Could not retrieve OTP after 3 attempts — will retry on next watchdog tick", "error");
         return;
       }
 

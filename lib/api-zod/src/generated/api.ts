@@ -32,6 +32,8 @@ export const GetBotStatusResponse = zod.object({
   verificationCount: zod.number(),
   autoRestart: zod.boolean(),
   crashCount: zod.number(),
+  reconnecting: zod.boolean(),
+  reconnectCount: zod.number(),
 });
 
 /**
