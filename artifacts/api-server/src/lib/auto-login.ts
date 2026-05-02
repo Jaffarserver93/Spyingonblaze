@@ -409,59 +409,43 @@ export async function runAutoLoginStep(page: Page): Promise<void> {
         return;
       }
 
-      addLog(`OTP target input: checking Clerk selectors...`, "info");
+      addLog(`OTP target input: finding Clerk digit boxes...`, "info");
 
-      // Strategy A: single combined OTP input (Clerk sometimes uses one input)
-      const pastedA = await page.evaluate((code: string) => {
-        const sels = [
-          "input[autocomplete='one-time-code']",
-          "input[data-input-otp]",
-          "[class*='otpCode'] input",
-          "[class*='OtpCode'] input",
-        ];
-        for (const sel of sels) {
-          const inputs = Array.from(document.querySelectorAll(sel)) as HTMLInputElement[];
-          if (inputs.length === 1) {
-            inputs[0].focus();
-            inputs[0].value = code;
-            inputs[0].dispatchEvent(new InputEvent("input", { bubbles: true, data: code }));
-            inputs[0].dispatchEvent(new Event("change", { bubbles: true }));
-            return `pasted:${sel}`;
-          }
-          // Multiple single-digit boxes
-          if (inputs.length > 1 && inputs.length <= 8) {
-            for (let i = 0; i < inputs.length && i < code.length; i++) {
-              inputs[i].focus();
-              inputs[i].value = code[i];
-              inputs[i].dispatchEvent(new InputEvent("input", { bubbles: true, data: code[i] }));
-            }
-            return `pasted-multi:${sel}`;
-          }
-        }
-        return null;
-      }, otp);
+      // Clerk renders 6 individual digit boxes. We must use real Puppeteer
+      // keyboard events — React ignores direct .value assignments entirely.
+      // Priority: find all 6 boxes → click first → type all digits.
+      const otpSelectorCandidates = [
+        "input[maxlength='1']",                    // Clerk individual digit boxes
+        "[data-input-otp-slot] input",
+        ".cl-otpCodeFieldInput",
+        "input[autocomplete='one-time-code']",      // may be 1 or 6 elements
+        "input[data-input-otp]",
+        "[class*='otpCode'] input",
+        "[class*='OtpCode'] input",
+        "input[maxlength='6']",
+      ];
 
-      addLog(`OTP strategy A: ${pastedA ?? "no match"}`, "info");
+      let otpHandled = false;
+      for (const sel of otpSelectorCandidates) {
+        const inputs = await page.$$(sel);
+        if (inputs.length === 0) continue;
 
-      if (!pastedA) {
-        // Strategy B: find first OTP box, focus it, type digit by digit
-        addLog("OTP strategy B: keyboard type digit by digit...", "info");
-        const otpSelectors = [
-          "input[autocomplete='one-time-code']",
-          "input[data-input-otp]",
-          "[class*='otpCode'] input",
-          "input[maxlength='1'][type='text']",
-          "input[maxlength='6']",
-        ];
-        for (const sel of otpSelectors) {
-          const found = await page.$(sel);
-          if (found) {
-            await found.click();
-            await page.keyboard.type(otp, { delay: 100 });
-            addLog(`OTP strategy B: typed into ${sel}`, "info");
-            break;
-          }
-        }
+        addLog(`OTP: found ${inputs.length} input(s) via "${sel}" — typing via keyboard`, "info");
+
+        // Click the first box to focus it, then type all digits.
+        // Clerk moves focus to the next box automatically after each digit.
+        await inputs[0].click();
+        await new Promise((r) => setTimeout(r, 200));
+        await page.keyboard.type(otp, { delay: 120 });
+        addLog(`OTP typed (${inputs.length} box(es), sel: ${sel})`, "info");
+        otpHandled = true;
+        break;
+      }
+
+      if (!otpHandled) {
+        // Last resort: no selector matched — dump keys into whatever is focused
+        addLog("OTP fallback: no input found, typing into focused element", "warning");
+        await page.keyboard.type(otp, { delay: 120 });
       }
 
       // Wait 2s — Clerk auto-submits when all 6 digits are detected
