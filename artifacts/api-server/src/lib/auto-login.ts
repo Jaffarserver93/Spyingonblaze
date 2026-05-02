@@ -128,28 +128,55 @@ async function fetchOtpFromImap(): Promise<string | null> {
     const lock = await client.getMailboxLock("INBOX");
 
     try {
-      // Search for recent unseen emails in the last 10 minutes
-      const since = new Date(Date.now() - 10 * 60 * 1000);
-      const messages = await client.search({ since, seen: false });
+      // Search ALL emails in the last 15 minutes (seen or unseen) from BLAZENODE
+      const since = new Date(Date.now() - 15 * 60 * 1000);
+      const allRecent = await client.search({ since });
 
-      if (!messages || messages.length === 0) {
-        addLog("No new emails found for OTP", "warning");
+      if (!allRecent || allRecent.length === 0) {
+        addLog("No recent emails found in last 15 min", "warning");
         return null;
       }
 
-      // Fetch the most recent messages and look for OTP
-      const uids = messages.slice(-5);
-      for (const uid of uids.reverse()) {
-        const msg = await client.fetchOne(String(uid), { source: true });
+      addLog(`Found ${allRecent.length} recent email(s) — checking newest first`, "info");
+
+      // Fetch all recent messages, newest UIDs last → iterate in reverse for newest first
+      const uidsToCheck = [...allRecent].reverse().slice(0, 10);
+
+      for (const uid of uidsToCheck) {
+        // Fetch envelope (subject + from) — much faster than full source
+        const msg = await client.fetchOne(String(uid), { envelope: true, source: true });
         if (!msg) continue;
 
+        const from = (msg.envelope?.from?.[0]?.name ?? "") + " " +
+                     (msg.envelope?.from?.[0]?.address ?? "");
+        const subject = msg.envelope?.subject ?? "";
         const raw = msg.source?.toString() ?? "";
-        // Look for 6-digit OTP code in email body
-        const otpMatch = raw.match(/\b(\d{6})\b/);
-        if (otpMatch) {
-          addLog(`OTP found: ${otpMatch[1]}`, "success");
+
+        // Only process BLAZENODE emails
+        const isBlazeMail =
+          from.toLowerCase().includes("blazenode") ||
+          subject.toLowerCase().includes("blazenode") ||
+          subject.toLowerCase().includes("verification") ||
+          raw.toLowerCase().includes("blazenode");
+
+        if (!isBlazeMail) continue;
+
+        addLog(`Checking email: "${subject}" from "${from.trim()}"`, "info");
+
+        // Subject often contains the code directly: "222084 is your verification code"
+        const subjectMatch = subject.match(/\b(\d{6})\b/);
+        if (subjectMatch) {
+          addLog(`OTP from subject: ${subjectMatch[1]}`, "success");
           await client.logout();
-          return otpMatch[1];
+          return subjectMatch[1];
+        }
+
+        // Fall back to full body
+        const bodyMatch = raw.match(/\b(\d{6})\b/);
+        if (bodyMatch) {
+          addLog(`OTP from body: ${bodyMatch[1]}`, "success");
+          await client.logout();
+          return bodyMatch[1];
         }
       }
     } finally {
@@ -157,7 +184,7 @@ async function fetchOtpFromImap(): Promise<string | null> {
     }
 
     await client.logout();
-    addLog("No OTP code found in recent emails", "warning");
+    addLog("No OTP code found in recent BLAZENODE emails", "warning");
     return null;
   } catch (err) {
     addLog(`IMAP error: ${err instanceof Error ? err.message : String(err)}`, "error");
@@ -437,23 +464,52 @@ export async function runAutoLoginStep(page: Page): Promise<void> {
         }
       }
 
-      await new Promise((r) => setTimeout(r, 1000));
+      // Wait 2s — Clerk auto-submits when all 6 digits are detected
+      await new Promise((r) => setTimeout(r, 2000));
 
-      // Submit — skip social buttons here too
-      const SOCIAL = ["google","github","apple","facebook","twitter","microsoft"];
-      const otpSubmitted = await page.evaluate((social: string[]) => {
-        const btns = Array.from(document.querySelectorAll<HTMLButtonElement>("button[type='submit'], button"));
-        for (const btn of btns) {
-          const t = (btn.textContent ?? "").toLowerCase().trim();
-          if (social.some(s => t.includes(s))) continue;
-          if (!btn.disabled && (t.includes("continue") || t.includes("verify") || t.includes("confirm") || btn.type === "submit")) {
-            btn.click(); return t || "submit";
+      // Check if Clerk already navigated away (auto-submit worked)
+      const urlAfterOtp = await page.evaluate(() => window.location.href).catch(() => "");
+      const stillOnOtp = urlAfterOtp.includes("factor") || urlAfterOtp.includes("otp");
+
+      if (stillOnOtp) {
+        addLog("Clerk did not auto-submit — clicking Continue button manually", "info");
+
+        // Words that mean "skip / go back / resend" — must NOT click these
+        const SKIP_WORDS = [
+          "resend", "didn't receive", "didnt receive", "send again",
+          "back", "cancel", "change", "use another", "try another",
+          "google", "github", "apple", "facebook", "twitter", "microsoft",
+        ];
+
+        const otpSubmitted = await page.evaluate((skipWords: string[]) => {
+          const btns = Array.from(
+            document.querySelectorAll<HTMLButtonElement>("button[type='submit'], button"),
+          );
+          for (const btn of btns) {
+            const t = (btn.textContent ?? "").toLowerCase().trim();
+            // Skip any button whose text contains a skip-word
+            if (skipWords.some((w) => t.includes(w))) continue;
+            if (btn.disabled) continue;
+            // Click if it looks like a primary action button
+            if (
+              t.includes("continue") ||
+              t.includes("verify") ||
+              t.includes("confirm") ||
+              t.includes("submit") ||
+              btn.type === "submit"
+            ) {
+              btn.click();
+              return t || "submit-btn";
+            }
           }
-        }
-        return null;
-      }, SOCIAL);
-      if (!otpSubmitted) await page.keyboard.press("Enter");
-      addLog(`OTP submitted (btn: ${otpSubmitted ?? "Enter"})`, "info");
+          return null;
+        }, SKIP_WORDS);
+
+        if (!otpSubmitted) await page.keyboard.press("Enter");
+        addLog(`OTP submitted (btn: ${otpSubmitted ?? "Enter"})`, "info");
+      } else {
+        addLog("Clerk auto-submitted OTP successfully", "success");
+      }
 
       await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10000 }).catch(() => {});
     }
