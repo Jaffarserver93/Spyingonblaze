@@ -252,20 +252,35 @@ export async function runAutoLoginStep(page: Page): Promise<void> {
       addLog(`Typed email: ${cfg.email}`, "info");
       await new Promise((r) => setTimeout(r, 600));
 
-      // Click Continue button
+      // Click the plain Continue / Next / Sign in button — skip all social login buttons
       const clicked = await page.evaluate(() => {
-        const btns = Array.from(document.querySelectorAll("button"));
-        for (const btn of btns) {
+        // Social provider keywords to skip
+        const SOCIAL = ["google", "github", "apple", "facebook", "twitter", "microsoft", "saml", "oauth", "gitlab", "linkedin", "discord"];
+
+        // Prefer submit buttons first (Clerk uses type="submit" for the main action)
+        const submitBtns = Array.from(document.querySelectorAll<HTMLButtonElement>("button[type='submit']"));
+        for (const btn of submitBtns) {
+          const t = (btn.textContent ?? "").toLowerCase();
+          if (SOCIAL.some((s) => t.includes(s))) continue;
+          if (!btn.disabled) { btn.click(); return "submit-btn"; }
+        }
+
+        // Fallback: any button whose text is purely "continue", "next", or "sign in" (no social keywords)
+        const allBtns = Array.from(document.querySelectorAll<HTMLButtonElement>("button"));
+        for (const btn of allBtns) {
           const t = (btn.textContent ?? "").toLowerCase().trim();
-          if (t.includes("continue") || t.includes("next") || t.includes("sign in")) {
-            (btn as HTMLElement).click();
-            return true;
+          if (SOCIAL.some((s) => t.includes(s))) continue;
+          if (t === "continue" || t === "next" || t === "sign in" || t === "continue →") {
+            if (!btn.disabled) { btn.click(); return "text-btn"; }
           }
         }
-        return false;
+        return null;
       });
-      if (!clicked) await page.keyboard.press("Enter");
-      addLog("Clicked Continue after email", "info");
+      if (!clicked) {
+        // Safest fallback: press Enter on the focused email field
+        await page.keyboard.press("Enter");
+      }
+      addLog(`Clicked Continue after email (method: ${clicked ?? "Enter"})`, "info");
     } else if (step === "password") {
       state.currentStep = "password";
       addLog("Auto-login: Detected password step", "info");
@@ -282,19 +297,28 @@ export async function runAutoLoginStep(page: Page): Promise<void> {
       addLog("Typed password", "info");
       await new Promise((r) => setTimeout(r, 600));
 
-      const clicked = await page.evaluate(() => {
-        const btns = Array.from(document.querySelectorAll("button"));
-        for (const btn of btns) {
+      const clickedPwd = await page.evaluate(() => {
+        const SOCIAL = ["google", "github", "apple", "facebook", "twitter", "microsoft", "saml", "oauth", "gitlab", "linkedin", "discord"];
+
+        const submitBtns = Array.from(document.querySelectorAll<HTMLButtonElement>("button[type='submit']"));
+        for (const btn of submitBtns) {
+          const t = (btn.textContent ?? "").toLowerCase();
+          if (SOCIAL.some((s) => t.includes(s))) continue;
+          if (!btn.disabled) { btn.click(); return "submit-btn"; }
+        }
+
+        const allBtns = Array.from(document.querySelectorAll<HTMLButtonElement>("button"));
+        for (const btn of allBtns) {
           const t = (btn.textContent ?? "").toLowerCase().trim();
-          if (t.includes("continue") || t.includes("sign in") || t.includes("next")) {
-            (btn as HTMLElement).click();
-            return true;
+          if (SOCIAL.some((s) => t.includes(s))) continue;
+          if (t === "continue" || t === "next" || t === "sign in" || t === "continue →") {
+            if (!btn.disabled) { btn.click(); return "text-btn"; }
           }
         }
-        return false;
+        return null;
       });
-      if (!clicked) await page.keyboard.press("Enter");
-      addLog("Clicked Continue after password", "info");
+      if (!clickedPwd) await page.keyboard.press("Enter");
+      addLog(`Clicked Continue after password (method: ${clickedPwd ?? "Enter"})`, "info");
     } else if (step === "otp") {
       state.currentStep = "otp";
       addLog("Auto-login: Detected OTP step — fetching from email...", "info");
