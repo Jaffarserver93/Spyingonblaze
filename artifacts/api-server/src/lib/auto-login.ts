@@ -506,7 +506,11 @@ export async function runAutoLoginStep(page: Page): Promise<void> {
 
     if (finalStep === "none") {
       state.currentStep = null;
-      addLog("Auto-login completed successfully!", "success");
+      addLog("Auto-login completed successfully! Navigating to earn page...", "success");
+      await page.goto("https://dash.blazenode.online/earn", {
+        waitUntil: "domcontentloaded",
+        timeout: 30_000,
+      }).catch((e) => addLog(`Navigate to /earn failed: ${e.message}`, "warning"));
     }
 
     lastCompletedStep = step;

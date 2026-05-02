@@ -177,6 +177,17 @@ async function watchdog(): Promise<void> {
         currentUrl.startsWith("https://dash.blazenode.online/#/factor");
       if (isLoginPage && loadAutoLoginConfig()) {
         await runAutoLoginStep(page);
+        return;
+      }
+
+      // Logged in but landed somewhere other than /earn (e.g. /dashboard) — redirect
+      const isBlazeDashboard =
+        currentUrl.startsWith("https://dash.blazenode.online") &&
+        !currentUrl.includes("/earn") &&
+        !currentUrl.includes("about:blank");
+      if (isBlazeDashboard) {
+        logger.info({ currentUrl }, "Logged in but not on /earn — redirecting");
+        await page.goto(EARN_URL, { waitUntil: "domcontentloaded", timeout: 30_000 }).catch(() => {});
       }
       return;
     }
