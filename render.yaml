@@ -8,3 +8,12 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Generate at: https://dashboard.render.com/u/settings → API Keys
+      - key: RENDER_API_KEY
+        sync: false
+      # Found in your service URL: dashboard.render.com/web/srv-XXXXXXXX → copy the srv-... part
+      - key: RENDER_SERVICE_ID
+        sync: false
+      # Auto-populated by the bot after first login — do NOT set this manually
+      - key: SESSION_DATA
+        sync: false

@@ -1,5 +1,10 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { restoreSessionFromEnv } from "./lib/bot";
+
+// Restore session from Render env var before anything else starts,
+// so the bot can resume without re-logging-in after a fresh deploy.
+restoreSessionFromEnv();
 
 const rawPort = process.env["PORT"];
 

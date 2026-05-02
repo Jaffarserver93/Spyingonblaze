@@ -107,6 +107,80 @@ let intentionalStop = false;
 
 // ─── Session persistence ──────────────────────────────────────────────────────
 
+/**
+ * Called once at server startup.
+ * If SESSION_DATA env var is set (base64-encoded JSON written by persistSessionToEnv),
+ * decode it and write to session.json so the bot can resume without re-logging-in
+ * even after a fresh deploy that would otherwise wipe the file.
+ */
+export function restoreSessionFromEnv(): void {
+  const encoded = process.env.SESSION_DATA;
+  if (!encoded) return;
+  try {
+    const json = Buffer.from(encoded, "base64").toString("utf8");
+    JSON.parse(json); // validate before writing
+    fs.writeFileSync(SESSION_FILE, json, "utf8");
+    logger.info("Session restored from SESSION_DATA env var");
+  } catch (err) {
+    logger.warn({ err }, "Failed to restore session from SESSION_DATA env var");
+  }
+}
+
+/**
+ * After every save, push the session JSON to the Render SERVICE env var so it
+ * survives the next deploy. Requires RENDER_API_KEY and RENDER_SERVICE_ID env vars.
+ * Safe to omit — if the keys are missing it silently skips.
+ */
+async function persistSessionToEnv(): Promise<void> {
+  const apiKey = process.env.RENDER_API_KEY;
+  const serviceId = process.env.RENDER_SERVICE_ID;
+  if (!apiKey || !serviceId) return;
+
+  try {
+    if (!fs.existsSync(SESSION_FILE)) return;
+    const json = fs.readFileSync(SESSION_FILE, "utf8");
+    const encoded = Buffer.from(json).toString("base64");
+
+    // GET current env vars first so we don't wipe unrelated ones
+    const listRes = await fetch(
+      `https://api.render.com/v1/services/${serviceId}/env-vars?limit=100`,
+      { headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" } },
+    );
+    if (!listRes.ok) {
+      logger.warn({ status: listRes.status }, "Render: failed to list env vars");
+      return;
+    }
+
+    type RenderEnvVar = { envVar: { key: string; value: string } };
+    const existing: RenderEnvVar[] = await listRes.json() as RenderEnvVar[];
+    const merged = existing
+      .map((e) => ({ key: e.envVar.key, value: e.envVar.value }))
+      .filter((e) => e.key !== "SESSION_DATA");
+    merged.push({ key: "SESSION_DATA", value: encoded });
+
+    const putRes = await fetch(
+      `https://api.render.com/v1/services/${serviceId}/env-vars`,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(merged),
+      },
+    );
+
+    if (!putRes.ok) {
+      logger.warn({ status: putRes.status }, "Render: failed to persist session env var");
+    } else {
+      logger.info("Session persisted to Render SESSION_DATA env var");
+    }
+  } catch (err) {
+    logger.warn({ err }, "Failed to persist session to Render env var");
+  }
+}
+
 async function saveSession(): Promise<void> {
   if (!page) return;
   try {
@@ -132,6 +206,9 @@ async function saveSession(): Promise<void> {
       JSON.stringify({ cookies, localStorage: localStorageData }, null, 2),
     );
     logger.info({ path: SESSION_FILE, cookieCount: cookies.length }, "Session saved");
+
+    // Push to Render env var so it survives the next deploy
+    void persistSessionToEnv();
   } catch (err) {
     logger.warn({ err }, "Failed to save session");
   }
