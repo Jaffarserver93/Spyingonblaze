@@ -15,6 +15,7 @@ import {
   Loader2, ShieldCheck, Coins, Keyboard, Send, CornerDownLeft, RefreshCw,
 } from "lucide-react";
 import AutoLoginPanel from "@/components/AutoLoginPanel";
+import EarningsTrack, { type EarningsPoint } from "@/components/EarningsTrack";
 import { formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -53,6 +54,8 @@ export default function Home() {
   const [isClicking, setIsClicking] = useState(false);
   const [typeInput, setTypeInput] = useState("");
   const [displayUptime, setDisplayUptime] = useState<number | null>(null);
+  const [earningsHistory, setEarningsHistory] = useState<EarningsPoint[]>([]);
+  const lastCoinRef = useRef<number | null>(null);
   // Two-layer crossfade for viewport screenshots
   const [baseSrc, setBaseSrc] = useState<string | null>(null);
   const [fadeSrc, setFadeSrc] = useState<string | null>(null);
@@ -204,6 +207,17 @@ export default function Home() {
     prevNeedsLogin.current = status.needsLogin;
     prevEarning.current = status.earning;
     prevVerificationCount.current = status.verificationCount;
+
+    // Track earnings history for chart
+    const coins = (status as { coinsEarned?: number | null }).coinsEarned ?? null;
+    if (coins !== null && coins !== lastCoinRef.current) {
+      lastCoinRef.current = coins;
+      setEarningsHistory((prev) => {
+        const point: EarningsPoint = { ts: Date.now(), coins };
+        // Keep last 500 points
+        return [...prev, point].slice(-500);
+      });
+    }
   }, [status, toast]);
 
   // ─── Auto-restart toggle ──────────────────────────────────────────────────
@@ -489,8 +503,8 @@ export default function Home() {
             </AnimatePresence>
           </div>
 
-          {/* ACTIVITY LOG */}
-          <div className="lg:col-span-1 flex flex-col gap-2 h-full min-h-[400px]">
+          {/* RIGHT COLUMN: EVENT LOG + EARNINGS TRACK */}
+          <div className="lg:col-span-1 flex flex-col gap-4">
             <div className="flex items-center justify-between text-xs font-bold text-muted-foreground uppercase tracking-widest px-1">
               <span>Event_Log</span>
               {status?.lastActivity && (
@@ -529,6 +543,13 @@ export default function Home() {
                 </ScrollArea>
               </CardContent>
             </Card>
+
+            {/* EARNINGS TRACK CHART */}
+            <EarningsTrack
+              data={earningsHistory}
+              current={(status as { coinsEarned?: number | null })?.coinsEarned ?? null}
+              onClear={() => { setEarningsHistory([]); lastCoinRef.current = null; }}
+            />
           </div>
 
         </div>

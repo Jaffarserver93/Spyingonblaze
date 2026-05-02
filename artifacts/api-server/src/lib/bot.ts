@@ -27,6 +27,7 @@ interface BotState {
   lastActivity: string | null;
   sessionActive: boolean;
   earning: boolean;
+  coinsEarned: number | null;
   latestScreenshot: string | null;
   lastVerification: string | null;
   verificationCount: number;
@@ -41,6 +42,7 @@ const state: BotState = {
   lastActivity: null,
   sessionActive: false,
   earning: false,
+  coinsEarned: null,
   latestScreenshot: null,
   lastVerification: null,
   verificationCount: 0,
@@ -269,7 +271,37 @@ async function watchdog(): Promise<void> {
         document.querySelector("[data-earning='true']") !== null ||
         document.querySelector(".earning-active") !== null;
 
-      return { actions, isRunning };
+      // 5. Scrape coins earned — BlazeNode shows "29 EARNED" on the earn page
+      let coinsEarned: number | null = null;
+      try {
+        // Strategy A: look for element labelled "earned" and grab the sibling number
+        const allEls = Array.from(document.querySelectorAll("*"));
+        for (const el of allEls) {
+          const txt = (el.textContent ?? "").trim();
+          if (/^\d+(\.\d+)?$/.test(txt)) {
+            const next = el.nextElementSibling;
+            const prev = el.previousElementSibling;
+            const parent = el.parentElement;
+            const nearbyText = [
+              next?.textContent ?? "",
+              prev?.textContent ?? "",
+              parent?.textContent ?? "",
+            ].join(" ").toLowerCase();
+            if (nearbyText.includes("earned")) {
+              coinsEarned = parseFloat(txt);
+              break;
+            }
+          }
+        }
+        // Strategy B: regex scan the full page text "NUMBER earned"
+        if (coinsEarned === null) {
+          const bodyText = document.body.innerText;
+          const m = bodyText.match(/(\d+(?:\.\d+)?)\s*(?:coins?\s*)?earned/i);
+          if (m) coinsEarned = parseFloat(m[1]);
+        }
+      } catch {}
+
+      return { actions, isRunning, coinsEarned };
     });
 
     if (
@@ -283,6 +315,10 @@ async function watchdog(): Promise<void> {
         { actions: result.actions, total: state.verificationCount },
         "Verification popup auto-dismissed",
       );
+    }
+
+    if (result.coinsEarned !== null) {
+      state.coinsEarned = result.coinsEarned;
     }
 
     if (result.actions.includes("start_earning_clicked")) {
@@ -575,6 +611,7 @@ export function getBotStatus() {
     lastActivity: state.lastActivity,
     sessionActive: state.sessionActive,
     earning: state.earning,
+    coinsEarned: state.coinsEarned,
     lastVerification: state.lastVerification,
     verificationCount: state.verificationCount,
     autoRestart: state.autoRestart,
