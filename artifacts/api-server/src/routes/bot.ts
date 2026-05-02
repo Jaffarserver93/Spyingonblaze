@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { startBot, stopBot, clickAt, typeText, pressKey, getBotStatus, getLatestScreenshot, setAutoRestart } from "../lib/bot";
+import { startBot, stopBot, clickAt, typeText, pressKey, getBotStatus, getLatestScreenshot, setAutoRestart, getEarningsData, forceReadEarnings } from "../lib/bot";
 import {
   GetBotStatusResponse,
   StartBotResponse,
@@ -9,6 +9,7 @@ import {
   BotTypeBody,
   BotTypeResponse,
   GetBotScreenshotResponse,
+  GetEarningsResponse,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -68,6 +69,16 @@ router.post("/bot/auto-restart", async (req, res): Promise<void> => {
   }
   setAutoRestart(enabled);
   res.json({ success: true, autoRestart: enabled });
+});
+
+router.get("/bot/earnings", async (_req, res): Promise<void> => {
+  const data = getEarningsData();
+  res.json(GetEarningsResponse.parse(data));
+});
+
+router.post("/bot/earnings/read-now", async (_req, res): Promise<void> => {
+  const result = await forceReadEarnings();
+  res.json({ success: true, value: result.value, pageLines: result.pageLines });
 });
 
 export default router;

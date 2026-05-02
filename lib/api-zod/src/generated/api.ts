@@ -87,3 +87,13 @@ export const GetBotScreenshotResponse = zod.object({
   screenshot: zod.string().nullable(),
   timestamp: zod.string(),
 });
+
+export const GetEarningsResponse = zod.object({
+  current: zod.number().nullable(),
+  history: zod.array(
+    zod.object({
+      value: zod.number(),
+      timestamp: zod.number(),
+    }),
+  ),
+});

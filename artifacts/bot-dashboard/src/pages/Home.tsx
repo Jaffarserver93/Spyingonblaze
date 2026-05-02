@@ -1,5 +1,14 @@
 import { useEffect, useRef, useState, KeyboardEvent } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 import {
   useGetBotStatus,
   useGetBotScreenshot,
@@ -12,10 +21,9 @@ import {
 } from "@workspace/api-client-react";
 import {
   Play, Square, Terminal, AlertTriangle, Clock, Activity,
-  Loader2, ShieldCheck, Coins, Keyboard, Send, CornerDownLeft, RefreshCw,
+  Loader2, ShieldCheck, Coins, Keyboard, Send, CornerDownLeft, RefreshCw, TrendingUp,
 } from "lucide-react";
 import AutoLoginPanel from "@/components/AutoLoginPanel";
-import EarningsTrack, { type EarningsPoint } from "@/components/EarningsTrack";
 import { formatDistanceToNow } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -54,8 +62,6 @@ export default function Home() {
   const [isClicking, setIsClicking] = useState(false);
   const [typeInput, setTypeInput] = useState("");
   const [displayUptime, setDisplayUptime] = useState<number | null>(null);
-  const [earningsHistory, setEarningsHistory] = useState<EarningsPoint[]>([]);
-  const lastCoinRef = useRef<number | null>(null);
   // Two-layer crossfade for viewport screenshots
   const [baseSrc, setBaseSrc] = useState<string | null>(null);
   const [fadeSrc, setFadeSrc] = useState<string | null>(null);
@@ -226,29 +232,33 @@ export default function Home() {
     prevNeedsLogin.current = status.needsLogin;
     prevEarning.current = status.earning;
     prevVerificationCount.current = status.verificationCount;
-
-    // Track earnings history for chart
-    const coins = status.coinsEarned ?? null;
-    if (coins !== null && coins !== lastCoinRef.current) {
-      lastCoinRef.current = coins;
-      setEarningsHistory((prev) => {
-        const point: EarningsPoint = { ts: Date.now(), coins };
-        // Keep last 500 points
-        return [...prev, point].slice(-500);
-      });
-    }
   }, [status, toast]);
 
-  // Force-add a data point every 60s even if value hasn't changed
-  const handleForceRefresh = () => {
-    const coins = lastCoinRef.current;
-    if (coins !== null) {
-      setEarningsHistory((prev) => {
-        const point: EarningsPoint = { ts: Date.now(), coins };
-        return [...prev, point].slice(-500);
-      });
-    }
-  };
+  // ─── Earnings data via dedicated endpoint ─────────────────────────────────
+
+  const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
+
+  const { data: earningsData, refetch: refetchEarnings } = useQuery({
+    queryKey: ["bot-earnings"],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/bot/earnings`);
+      if (!res.ok) throw new Error("Failed to fetch earnings");
+      return res.json() as Promise<{
+        current: number | null;
+        history: { value: number; timestamp: number }[];
+      }>;
+    },
+    refetchInterval: 60_000,
+    enabled: status?.running ?? false,
+  });
+
+  const earningsChartData = (earningsData?.history ?? []).map((p) => ({
+    value: p.value,
+    time: new Date(p.timestamp).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+  }));
 
   // ─── Auto-restart toggle ──────────────────────────────────────────────────
 
@@ -588,12 +598,84 @@ export default function Home() {
             </Card>
 
             {/* EARNINGS TRACK CHART */}
-            <EarningsTrack
-              data={earningsHistory}
-              current={status?.coinsEarned ?? null}
-              onClear={() => { setEarningsHistory([]); lastCoinRef.current = null; }}
-              onForceRefresh={handleForceRefresh}
-            />
+            {status?.running && (
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between text-xs font-bold text-muted-foreground uppercase tracking-widest px-1">
+                  <span className="flex items-center gap-1.5">
+                    <TrendingUp className="w-3 h-3 text-emerald-400" />
+                    Earnings_Track
+                  </span>
+                  <span className="flex items-center gap-2">
+                    {earningsData?.current != null ? (
+                      <span className="text-emerald-400 font-mono">
+                        CURRENT: {earningsData.current.toFixed(2)}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground/50">No data yet</span>
+                    )}
+                    <button
+                      className="text-muted-foreground/60 hover:text-emerald-400 transition-colors"
+                      title="Force read earnings now"
+                      onClick={async () => {
+                        await fetch(`${BASE}/api/bot/earnings/read-now`, { method: "POST" });
+                        refetchEarnings();
+                      }}
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                    </button>
+                  </span>
+                </div>
+
+                <Card className="bg-card/50 border-border shadow-inner">
+                  <CardContent className="p-4">
+                    {earningsChartData.length === 0 ? (
+                      <div className="h-32 flex items-center justify-center text-xs text-muted-foreground/40 font-mono uppercase tracking-widest">
+                        Awaiting first earnings reading…
+                      </div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height={160}>
+                        <LineChart data={earningsChartData} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                          <XAxis
+                            dataKey="time"
+                            tick={{ fontSize: 10, fill: "rgba(255,255,255,0.3)", fontFamily: "monospace" }}
+                            tickLine={false}
+                            axisLine={false}
+                            interval="preserveStartEnd"
+                          />
+                          <YAxis
+                            tick={{ fontSize: 10, fill: "rgba(255,255,255,0.3)", fontFamily: "monospace" }}
+                            tickLine={false}
+                            axisLine={false}
+                            width={48}
+                          />
+                          <Tooltip
+                            contentStyle={{
+                              background: "hsl(var(--card))",
+                              border: "1px solid hsl(var(--border))",
+                              borderRadius: "6px",
+                              fontSize: "11px",
+                              fontFamily: "monospace",
+                              color: "hsl(var(--foreground))",
+                            }}
+                            labelStyle={{ color: "rgba(255,255,255,0.5)", marginBottom: 4 }}
+                            formatter={(v: number) => [v.toFixed(4), "Earned"]}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="value"
+                            stroke="#10b981"
+                            strokeWidth={2}
+                            dot={{ fill: "#10b981", r: 3 }}
+                            activeDot={{ r: 5, fill: "#34d399" }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            )}
           </div>
 
         </div>

@@ -27,7 +27,7 @@ interface BotState {
   lastActivity: string | null;
   sessionActive: boolean;
   earning: boolean;
-  coinsEarned: number | null;
+  currentEarnings: number | null;
   latestScreenshot: string | null;
   lastVerification: string | null;
   verificationCount: number;
@@ -42,13 +42,25 @@ const state: BotState = {
   lastActivity: null,
   sessionActive: false,
   earning: false,
-  coinsEarned: null,
+  currentEarnings: null,
   latestScreenshot: null,
   lastVerification: null,
   verificationCount: 0,
   autoRestart: true,
   crashCount: 0,
 };
+
+// ─── Earnings history ─────────────────────────────────────────────────────────
+
+interface EarningsPoint {
+  value: number;
+  timestamp: number;
+}
+
+const earningsHistory: EarningsPoint[] = [];
+const MAX_EARNINGS_HISTORY = 144; // ~24h at one sample per 10 min
+let lastEarningsReadAt = 0;
+const EARNINGS_READ_INTERVAL_MS = 60_000;
 
 let browser: Browser | null = null;
 let page: Page | null = null;
@@ -271,73 +283,7 @@ async function watchdog(): Promise<void> {
         document.querySelector("[data-earning='true']") !== null ||
         document.querySelector(".earning-active") !== null;
 
-      // 5. Scrape coins earned — BlazeNode shows "1\nEARNED" in a stat box
-      let coinsEarned: number | null = null;
-      try {
-        // Strategy A: find leaf text nodes that are pure numbers next to "EARNED" label
-        const allEls = Array.from(document.querySelectorAll("*"));
-        for (const el of allEls) {
-          // Only look at leaf-ish elements (no element children, or few of them)
-          if (el.children.length > 3) continue;
-          const txt = (el.textContent ?? "").trim();
-          if (!/^\d+(\.\d+)?$/.test(txt)) continue;
-
-          // Check siblings and parent for "earned" label
-          const siblings = Array.from(el.parentElement?.children ?? []);
-          const siblingText = siblings.map((s) => s.textContent ?? "").join(" ").toLowerCase();
-          const parentText = (el.parentElement?.textContent ?? "").toLowerCase();
-
-          if (siblingText.includes("earned") || parentText.includes("earned")) {
-            // Make sure this isn't the "per min" value — check if "per min" is closer
-            if (!siblingText.includes("per min") && parentText.includes("earned")) {
-              coinsEarned = parseFloat(txt);
-              break;
-            }
-            if (siblingText.includes("earned") && !siblingText.includes("per min")) {
-              coinsEarned = parseFloat(txt);
-              break;
-            }
-          }
-        }
-
-        // Strategy B: regex on innerText — handles "1\nEARNED" layout
-        if (coinsEarned === null) {
-          const bodyText = document.body.innerText;
-          // Match a number followed (possibly with whitespace/newline) by "EARNED"
-          // but NOT followed by "PER MIN" context
-          const m = bodyText.match(/(\d+(?:\.\d+)?)\s*\n?\s*EARNED/i);
-          if (m) coinsEarned = parseFloat(m[1]);
-        }
-
-        // Strategy C: look for the specific BlazeNode stat card structure
-        if (coinsEarned === null) {
-          const earnedLabels = Array.from(document.querySelectorAll("*")).filter(
-            (el) => el.children.length === 0 && /^earned$/i.test((el.textContent ?? "").trim()),
-          );
-          for (const label of earnedLabels) {
-            // Sibling or parent-sibling with the number
-            const parent = label.parentElement;
-            if (!parent) continue;
-            const numEl = Array.from(parent.children).find((c) => /^\d+(\.\d+)?$/.test((c.textContent ?? "").trim()));
-            if (numEl) {
-              coinsEarned = parseFloat((numEl.textContent ?? "").trim());
-              break;
-            }
-            // Try grandparent
-            const gp = parent.parentElement;
-            if (!gp) continue;
-            const numEl2 = Array.from(gp.querySelectorAll("*")).find(
-              (c) => c.children.length === 0 && /^\d+(\.\d+)?$/.test((c.textContent ?? "").trim()),
-            );
-            if (numEl2) {
-              coinsEarned = parseFloat((numEl2.textContent ?? "").trim());
-              break;
-            }
-          }
-        }
-      } catch {}
-
-      return { actions, isRunning, coinsEarned };
+      return { actions, isRunning };
     });
 
     if (
@@ -353,16 +299,24 @@ async function watchdog(): Promise<void> {
       );
     }
 
-    if (result.coinsEarned !== null) {
-      state.coinsEarned = result.coinsEarned;
-    }
-
     if (result.actions.includes("start_earning_clicked")) {
       state.lastActivity = new Date().toISOString();
       logger.info("Clicked Start AFK Earning");
     }
 
     state.earning = result.isRunning;
+
+    // Read earnings once per minute while on earn page
+    const now = Date.now();
+    if (now - lastEarningsReadAt >= EARNINGS_READ_INTERVAL_MS) {
+      lastEarningsReadAt = now;
+      const earned = await readEarnings();
+      if (earned !== null) {
+        state.currentEarnings = earned;
+        earningsHistory.push({ value: earned, timestamp: now });
+        if (earningsHistory.length > MAX_EARNINGS_HISTORY) earningsHistory.shift();
+      }
+    }
 
     // Save session after any action (keeps cookies fresh)
     if (result.actions.length > 0) {
@@ -519,6 +473,114 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | void> {
   return Promise.race([promise, new Promise<void>((r) => setTimeout(r, ms))]);
 }
 
+// ─── Earnings scraping ────────────────────────────────────────────────────────
+
+async function readEarnings(): Promise<number | null> {
+  if (!page) return null;
+  try {
+    const value = await withTimeout(
+      page.evaluate(() => {
+        const body = document.body.innerText ?? "";
+        const lines = body.split("\n").map((l) => l.trim());
+
+        // Strategy 1: scan line-by-line for "EARNED" label, grab adjacent number
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].toLowerCase();
+          const isEarnedLabel =
+            line === "earned" || line === "coins earned" || line === "total earned";
+          if (!isEarnedLabel) continue;
+
+          const prev = lines[i - 1] ?? "";
+          const prevNum = parseFloat(prev.replace(/[^0-9.]/g, ""));
+          if (!isNaN(prevNum) && prev.replace(/[^0-9.]/g, "").length > 0) return prevNum;
+
+          const next = lines[i + 1] ?? "";
+          if (!next.toLowerCase().includes("per")) {
+            const nextNum = parseFloat(next.replace(/[^0-9.]/g, ""));
+            if (!isNaN(nextNum) && next.replace(/[^0-9.]/g, "").length > 0) return nextNum;
+          }
+        }
+
+        // Strategy 2: DOM — find element with text "earned", grab sibling number
+        const allEls = Array.from(document.querySelectorAll("*"));
+        for (const el of allEls) {
+          const text = (el.textContent ?? "").trim().toLowerCase();
+          if (
+            text !== "earned" &&
+            text !== "coins earned" &&
+            text !== "total earned"
+          )
+            continue;
+          const parent = el.parentElement;
+          if (parent) {
+            for (const sib of Array.from(parent.children)) {
+              if (sib === el) continue;
+              const raw = (sib.textContent ?? "").trim().replace(/[^0-9.]/g, "");
+              const num = parseFloat(raw);
+              if (!isNaN(num) && raw.length > 0) return num;
+            }
+            const gp = parent.parentElement;
+            if (gp) {
+              for (const child of Array.from(gp.children)) {
+                if (child === parent) continue;
+                const raw = (child.textContent ?? "").trim().replace(/[^0-9.]/g, "");
+                const num = parseFloat(raw);
+                if (!isNaN(num) && raw.length > 0) return num;
+              }
+            }
+          }
+        }
+
+        // Strategy 3: regex — number on same line as "earned" (not "per")
+        const m =
+          body.match(/\b([0-9,]+\.?[0-9]*)\s+earned\b(?!\s*per|\s*\/)/i) ??
+          body.match(/\bearned\s*:?\s*([0-9,]+\.?[0-9]*)\b(?!\s*per|\s*\/)/i);
+        if (m) return parseFloat(m[1].replace(/,/g, ""));
+
+        return null;
+      }),
+      4000,
+    );
+    return typeof value === "number" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function forceReadEarnings(): Promise<{ value: number | null; pageLines: string[] }> {
+  if (!page) return { value: null, pageLines: ["Bot page not available"] };
+  let pageLines: string[] = [];
+  try {
+    const lines = await withTimeout(
+      page.evaluate(() =>
+        (document.body.innerText ?? "")
+          .split("\n")
+          .map((l) => l.trim())
+          .filter(Boolean),
+      ),
+      4000,
+    );
+    if (Array.isArray(lines)) pageLines = lines as string[];
+  } catch {
+    /* ignore */
+  }
+  lastEarningsReadAt = 0; // reset so watchdog picks it up immediately
+  const value = await readEarnings();
+  if (value !== null) {
+    state.currentEarnings = value;
+    earningsHistory.push({ value, timestamp: Date.now() });
+    if (earningsHistory.length > MAX_EARNINGS_HISTORY) earningsHistory.shift();
+  }
+  return { value, pageLines };
+}
+
+export function getEarningsData() {
+  return {
+    current: state.currentEarnings,
+    history: earningsHistory,
+  };
+}
+
 async function applyAntiDetection(p: Page): Promise<void> {
   await p.setUserAgent(
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
@@ -647,7 +709,7 @@ export function getBotStatus() {
     lastActivity: state.lastActivity,
     sessionActive: state.sessionActive,
     earning: state.earning,
-    coinsEarned: state.coinsEarned,
+    coinsEarned: state.currentEarnings,
     lastVerification: state.lastVerification,
     verificationCount: state.verificationCount,
     autoRestart: state.autoRestart,
