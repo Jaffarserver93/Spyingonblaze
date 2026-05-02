@@ -2,9 +2,11 @@ services:
   - type: web
     name: blazenode-afk-bot
     runtime: node
-    buildCommand: npm install -g pnpm && pnpm install && pnpm run build:render
+    buildCommand: npm install -g pnpm && pnpm install && BASE_PATH=/ pnpm --filter @workspace/bot-dashboard run build && pnpm --filter @workspace/api-server run build
     startCommand: node artifacts/api-server/dist/index.mjs
     healthCheckPath: /api/healthz
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+        value: "false"
