@@ -12,10 +12,10 @@ version = "1.0.0"
 [[services]]
 name = "web"
 paths = [ "/" ]
-localPort = 25712
+localPort = 5173
 
 [services.development]
-run = "fuser -k 25712/tcp 2>/dev/null; pnpm --filter @workspace/bot-dashboard run dev"
+run = "fuser -k 5173/tcp 2>/dev/null; pnpm --filter @workspace/bot-dashboard run dev"
 
 [services.production]
 build = [ "pnpm", "--filter", "@workspace/bot-dashboard", "run", "build" ]
@@ -27,5 +27,5 @@ from = "/*"
 to = "/index.html"
 
 [services.env]
-PORT = "25712"
+PORT = "5173"
 BASE_PATH = "/"
