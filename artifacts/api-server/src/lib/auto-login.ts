@@ -5,6 +5,80 @@ import type { Page } from "puppeteer";
 import { logger } from "./logger";
 
 const CONFIG_FILE = path.resolve(process.cwd(), "auto-login-config.json");
+
+// ─── Render env-var persistence for auto-login config ────────────────────────
+
+/**
+ * Called once at server startup.
+ * If AUTO_LOGIN_CONFIG env var is set (base64-encoded JSON), decode it and
+ * write to auto-login-config.json so credentials survive Render redeploys.
+ */
+export function restoreAutoLoginConfigFromEnv(): void {
+  const encoded = process.env.AUTO_LOGIN_CONFIG;
+  if (!encoded) return;
+  try {
+    const json = Buffer.from(encoded, "base64").toString("utf8");
+    JSON.parse(json); // validate before writing
+    fs.writeFileSync(CONFIG_FILE, json, "utf8");
+    logger.info("Auto-login config restored from AUTO_LOGIN_CONFIG env var");
+  } catch (err) {
+    logger.warn({ err }, "Failed to restore auto-login config from AUTO_LOGIN_CONFIG env var");
+  }
+}
+
+/**
+ * After saving credentials, push the config JSON to the Render SERVICE env var
+ * so it survives the next deploy. Requires RENDER_API_KEY and RENDER_SERVICE_ID.
+ * Safe to omit — silently skips if the keys are missing.
+ */
+async function persistAutoLoginConfigToEnv(): Promise<void> {
+  const apiKey = process.env.RENDER_API_KEY;
+  const serviceId = process.env.RENDER_SERVICE_ID;
+  if (!apiKey || !serviceId) return;
+
+  try {
+    if (!fs.existsSync(CONFIG_FILE)) return;
+    const json = fs.readFileSync(CONFIG_FILE, "utf8");
+    const encoded = Buffer.from(json).toString("base64");
+
+    const listRes = await fetch(
+      `https://api.render.com/v1/services/${serviceId}/env-vars?limit=100`,
+      { headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" } },
+    );
+    if (!listRes.ok) {
+      logger.warn({ status: listRes.status }, "Render: failed to list env vars (auto-login config)");
+      return;
+    }
+
+    type RenderEnvVar = { envVar: { key: string; value: string } };
+    const existing: RenderEnvVar[] = await listRes.json() as RenderEnvVar[];
+    const merged = existing
+      .map((e) => ({ key: e.envVar.key, value: e.envVar.value }))
+      .filter((e) => e.key !== "AUTO_LOGIN_CONFIG");
+    merged.push({ key: "AUTO_LOGIN_CONFIG", value: encoded });
+
+    const putRes = await fetch(
+      `https://api.render.com/v1/services/${serviceId}/env-vars`,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(merged),
+      },
+    );
+
+    if (!putRes.ok) {
+      logger.warn({ status: putRes.status }, "Render: failed to persist AUTO_LOGIN_CONFIG env var");
+    } else {
+      logger.info("Auto-login config persisted to Render AUTO_LOGIN_CONFIG env var");
+    }
+  } catch (err) {
+    logger.warn({ err }, "Failed to persist auto-login config to Render env var");
+  }
+}
 const MAX_LOG_ENTRIES = 100;
 
 export interface AutoLoginConfig {
@@ -61,6 +135,8 @@ export function saveConfig(config: AutoLoginConfig): void {
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
   state.configured = true;
   addLog(`Credentials saved for ${config.email}`, "success");
+  // Push to Render env var so credentials survive the next deploy
+  void persistAutoLoginConfigToEnv();
 }
 
 export function getAutoLoginState() {

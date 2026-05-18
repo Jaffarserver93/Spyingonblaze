@@ -8,12 +8,24 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: 10000
+      - key: PUPPETEER_CACHE_DIR
+        value: /opt/render/project/src/.puppeteer-cache
       # Generate at: https://dashboard.render.com/u/settings → API Keys
+      # Required so that session + auto-login config are persisted back to
+      # env vars after each save (survives redeploys without manual steps).
       - key: RENDER_API_KEY
         sync: false
-      # Found in your service URL: dashboard.render.com/web/srv-XXXXXXXX → copy the srv-... part
+      # Found in your service URL: dashboard.render.com/web/srv-XXXXXXXX
+      # Copy the srv-... part from the address bar.
       - key: RENDER_SERVICE_ID
         sync: false
-      # Auto-populated by the bot after first login — do NOT set this manually
+      # Auto-populated by the bot after first successful login.
+      # DO NOT set this manually — the bot writes it automatically.
       - key: SESSION_DATA
+        sync: false
+      # Auto-populated when you save credentials in the Auto-Login panel.
+      # DO NOT set this manually — the dashboard writes it automatically.
+      - key: AUTO_LOGIN_CONFIG
         sync: false
