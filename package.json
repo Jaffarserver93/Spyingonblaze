@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
-    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
+    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; [ \"$RENDER\" = true ] && exit 0; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "build:render": "BASE_PATH=/ pnpm --filter @workspace/bot-dashboard run build && pnpm --filter @workspace/api-server run build",
     "start:render": "node artifacts/api-server/dist/index.mjs",
