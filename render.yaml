@@ -2,7 +2,7 @@ services:
   - type: web
     name: blazenode-afk-bot
     runtime: node
-    buildCommand: npm install -g pnpm && pnpm install && PUPPETEER_CACHE_DIR=/opt/render/project/src/.puppeteer-cache pnpm --filter @workspace/api-server exec puppeteer browsers install chrome && BASE_PATH=/ pnpm --filter @workspace/bot-dashboard run build && pnpm --filter @workspace/api-server run build
+    buildCommand: corepack enable && corepack prepare pnpm@latest --activate && pnpm install && PUPPETEER_CACHE_DIR=/opt/render/project/src/.puppeteer-cache pnpm --filter @workspace/api-server exec puppeteer browsers install chrome && BASE_PATH=/ pnpm --filter @workspace/bot-dashboard run build && pnpm --filter @workspace/api-server run build
     startCommand: node artifacts/api-server/dist/index.mjs
     healthCheckPath: /api/healthz
     envVars:
